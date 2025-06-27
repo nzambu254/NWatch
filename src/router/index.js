@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { auth, db } from '../services/firebase'
 import { doc, getDoc } from 'firebase/firestore'
+import { onAuthStateChanged } from 'firebase/auth'
 
 const routes = [
   {
@@ -93,47 +94,86 @@ const router = createRouter({
   routes
 })
 
+// Global variable to track authentication state
+let authReady = false
+let currentUserData = null
+
+// Initialize authentication state listener - single source of truth
+const initializeAuth = onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    try {
+      // Check if we have cached user data
+      const cachedData = sessionStorage.getItem('userData')
+      
+      if (cachedData) {
+        currentUserData = JSON.parse(cachedData)
+      } else {
+        // Fetch user data from Firestore
+        const userDoc = await getDoc(doc(db, 'users', user.uid))
+        if (userDoc.exists()) {
+          const userData = userDoc.data()
+          currentUserData = {
+            uid: user.uid,
+            email: user.email,
+            role: userData.role,
+            approved: userData.approved
+          }
+          // Cache the data
+          sessionStorage.setItem('userData', JSON.stringify(currentUserData))
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching user data:', error)
+      currentUserData = null
+    }
+  } else {
+    currentUserData = null
+    sessionStorage.removeItem('userData')
+  }
+  authReady = true
+})
+
 router.beforeEach(async (to, from, next) => {
+  // Wait for auth to be ready
+  if (!authReady) {
+    await new Promise(resolve => {
+      const unsubscribe = onAuthStateChanged(auth, () => {
+        unsubscribe()
+        resolve()
+      })
+    })
+  }
+
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth)
   const requiresAdmin = to.matched.some(record => record.meta.requiresAdmin)
   const user = auth.currentUser
 
+  // If route requires authentication and user is not logged in
   if (requiresAuth && !user) {
     next('/login')
-  } else if (requiresAuth && requiresAdmin) {
-    // Check if user is admin
-    try {
-      const isAdmin = await checkIfAdmin(user.uid)
-      if (!isAdmin) {
-        next('/dashboard') // Redirect non-admins to resident dashboard
-      } else {
-        next()
-      }
-    } catch (error) {
-      console.error('Error checking admin status:', error)
-      next('/dashboard') // Redirect to resident dashboard on error
-    }
-  } else {
-    next()
+    return
   }
-})
 
-async function checkIfAdmin(uid) {
-  try {
-    // Get user document from Firestore
-    const userDoc = await getDoc(doc(db, 'users', uid))
-    
-    if (userDoc.exists()) {
-      const userData = userDoc.data()
-      // Check if user has admin role and is approved
-      return userData.role === 'admin' && userData.approved === true
+  // If user is logged in and trying to access login page, redirect to appropriate dashboard
+  if (user && to.path === '/login') {
+    if (currentUserData) {
+      const redirectPath = currentUserData.role === 'admin' ? '/admin/dashboard' : '/dashboard'
+      next(redirectPath)
+    } else {
+      next('/dashboard') // fallback
     }
-    
-    return false
-  } catch (error) {
-    console.error('Error fetching user data:', error)
-    return false
+    return
   }
-}
+
+  // If route requires admin access
+  if (requiresAuth && requiresAdmin) {
+    if (!currentUserData || currentUserData.role !== 'admin' || !currentUserData.approved) {
+      next('/dashboard') // Redirect non-admins to resident dashboard
+      return
+    }
+  }
+
+  next()
+})
 
 export default router

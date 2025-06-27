@@ -62,9 +62,17 @@ export default {
             return
           }
 
+          // Store user data in sessionStorage for immediate access
+          sessionStorage.setItem('userData', JSON.stringify({
+            uid: user.uid,
+            email: user.email,
+            role: userData.role,
+            approved: userData.approved
+          }))
+
           // Redirect to appropriate dashboard
           const redirectPath = userData.role === 'admin' ? '/admin/dashboard' : '/dashboard'
-          router.push(redirectPath)
+          await router.push(redirectPath)
         } else {
           throw new Error('User data not found')
         }

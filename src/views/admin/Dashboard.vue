@@ -29,6 +29,9 @@
             <div class="pending-type">{{ item.type }}</div>
             <div class="pending-details">{{ item.details }}</div>
             <div class="pending-time">{{ formatDate(item.timestamp) }}</div>
+            <div class="pending-urgency" :class="'urgency-' + item.urgency">
+              {{ item.urgency }}
+            </div>
             <button class="action-btn" @click="handleAction(item)">
               {{ item.action }}
             </button>
@@ -40,22 +43,36 @@
       </section>
 
       <section class="quick-stats">
-        <h2>Neighborhood Stats</h2>
+        <h2>Incident Statistics</h2>
         <div class="stats-chart">
           <canvas ref="statsChart"></canvas>
         </div>
         <div class="stat-notes">
           <div class="stat-note">
             <span class="note-color" style="background-color: #3498db;"></span>
-            <span>Incidents Reported</span>
+            <span>Pending ({{ incidentStats.pending }})</span>
+          </div>
+          <div class="stat-note">
+            <span class="note-color" style="background-color: #f39c12;"></span>
+            <span>Investigating ({{ incidentStats.investigating }})</span>
           </div>
           <div class="stat-note">
             <span class="note-color" style="background-color: #2ecc71;"></span>
-            <span>Resolved Cases</span>
+            <span>Resolved ({{ incidentStats.resolved }})</span>
           </div>
           <div class="stat-note">
             <span class="note-color" style="background-color: #e74c3c;"></span>
-            <span>Critical Alerts</span>
+            <span>High Urgency ({{ incidentStats.highUrgency }})</span>
+          </div>
+        </div>
+        
+        <div class="incident-types-summary">
+          <h3>Incident Types</h3>
+          <div class="type-stats">
+            <div v-for="(count, type) in incidentTypes" :key="type" class="type-stat">
+              <span class="type-name">{{ formatIncidentType(type) }}</span>
+              <span class="type-count">{{ count }}</span>
+            </div>
           </div>
         </div>
       </section>
@@ -88,7 +105,7 @@
 <script>
 import { ref, onMounted } from 'vue'
 import { db } from '../../services/firebase'
-import { collection, query, where, getDocs } from 'firebase/firestore'
+import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore'
 import Chart from 'chart.js/auto'
 
 export default {
@@ -100,20 +117,80 @@ export default {
     const responseTime = ref('2.5h')
     const pendingItems = ref([])
     const statsChart = ref(null)
+    const incidentStats = ref({
+      pending: 0,
+      investigating: 0,
+      resolved: 0,
+      highUrgency: 0
+    })
+    const incidentTypes = ref({})
 
     const fetchData = async () => {
       try {
-        // Fetch pending incidents
+        // Fetch all incidents for comprehensive stats
+        const allIncidentsQuery = query(collection(db, 'incidents'))
+        const allIncidentsSnapshot = await getDocs(allIncidentsQuery)
+        const allIncidents = allIncidentsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }))
+
+        // Calculate incident statistics
+        const stats = {
+          pending: 0,
+          investigating: 0,
+          resolved: 0,
+          highUrgency: 0
+        }
+        const types = {}
+
+        allIncidents.forEach(incident => {
+          // Count by status
+          if (incident.status) {
+            stats[incident.status] = (stats[incident.status] || 0) + 1
+          }
+          
+          // Count high urgency incidents
+          if (incident.urgency === 'high') {
+            stats.highUrgency++
+          }
+
+          // Count by type
+          if (incident.type) {
+            types[incident.type] = (types[incident.type] || 0) + 1
+          }
+        })
+
+        incidentStats.value = stats
+        incidentTypes.value = types
+        pendingIncidents.value = stats.pending || 0
+
+        // Fetch pending incidents for pending actions section
         const pendingQuery = query(
           collection(db, 'incidents'),
-          where('status', '==', 'pending')
+          where('status', '==', 'pending'),
+          orderBy('createdAt', 'desc'),
+          limit(5)
         )
         const pendingSnapshot = await getDocs(pendingQuery)
-        pendingIncidents.value = pendingSnapshot.size
+        
+        pendingItems.value = pendingSnapshot.docs.map(doc => {
+          const data = doc.data()
+          return {
+            id: doc.id,
+            type: 'Incident Review',
+            details: `${data.title || 'Untitled'} - ${data.type || 'Unknown type'}`,
+            timestamp: data.createdAt,
+            urgency: data.urgency || 'medium',
+            action: 'Review',
+            incidentType: data.type,
+            location: data.location
+          }
+        })
 
         // Fetch active alerts
         const alertsQuery = query(
-          collection(db, 'alerts'),
+          collection(db, 'broadcastAlerts'),
           where('active', '==', true)
         )
         const alertsSnapshot = await getDocs(alertsQuery)
@@ -124,30 +201,22 @@ export default {
         const usersSnapshot = await getDocs(usersQuery)
         registeredUsers.value = usersSnapshot.size
 
-        // Mock pending items (replace with actual data)
-        pendingItems.value = [
-          {
-            id: '1',
-            type: 'Incident Review',
-            details: 'Noise complaint at 123 Main St',
-            timestamp: new Date(Date.now() - 3600000),
-            action: 'Review'
-          },
-          {
-            id: '2',
-            type: 'User Verification',
-            details: 'New user: john.doe@example.com',
-            timestamp: new Date(Date.now() - 7200000),
-            action: 'Verify'
-          },
-          {
-            id: '3',
-            type: 'Alert Response',
-            details: 'Power outage reported in Zone 3',
-            timestamp: new Date(Date.now() - 10800000),
-            action: 'Respond'
-          }
-        ]
+        // Calculate average response time based on resolved incidents
+        const resolvedIncidents = allIncidents.filter(incident => 
+          incident.status === 'resolved' && incident.createdAt && incident.updatedAt
+        )
+        
+        if (resolvedIncidents.length > 0) {
+          const totalResponseTime = resolvedIncidents.reduce((total, incident) => {
+            const created = incident.createdAt.toDate ? incident.createdAt.toDate() : new Date(incident.createdAt)
+            const updated = incident.updatedAt.toDate ? incident.updatedAt.toDate() : new Date(incident.updatedAt)
+            return total + (updated - created)
+          }, 0)
+          
+          const avgResponseTimeMs = totalResponseTime / resolvedIncidents.length
+          const avgResponseTimeHours = avgResponseTimeMs / (1000 * 60 * 60)
+          responseTime.value = `${avgResponseTimeHours.toFixed(1)}h`
+        }
 
       } catch (error) {
         console.error('Error fetching admin dashboard data:', error)
@@ -156,60 +225,66 @@ export default {
 
     const formatDate = (timestamp) => {
       if (!timestamp) return ''
-      const date = timestamp instanceof Date ? timestamp : timestamp.toDate()
+      const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
       return date.toLocaleString()
+    }
+
+    const formatIncidentType = (type) => {
+      return type.split('_').map(word => 
+        word.charAt(0).toUpperCase() + word.slice(1)
+      ).join(' ')
     }
 
     const handleAction = (item) => {
       // Handle the action based on item type
       console.log(`Handling action for ${item.type}: ${item.id}`)
-      // In a real app, this would route to the appropriate management page
+      // Route to incident management page with the specific incident
+      // this.$router.push(`/admin/manage-incidents/${item.id}`)
     }
 
-    onMounted(() => {
-      fetchData()
-      
-      // Initialize chart after component is mounted
-      setTimeout(() => {
-        if (statsChart.value) {
-          const ctx = statsChart.value.getContext('2d')
-          new Chart(ctx, {
-            type: 'bar',
-            data: {
-              labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
-              datasets: [
-                {
-                  label: 'Incidents Reported',
-                  data: [12, 19, 8, 15, 14, 10],
-                  backgroundColor: '#3498db'
-                },
-                {
-                  label: 'Resolved Cases',
-                  data: [10, 15, 6, 12, 12, 8],
-                  backgroundColor: '#2ecc71'
-                },
-                {
-                  label: 'Critical Alerts',
-                  data: [2, 3, 1, 4, 2, 3],
-                  backgroundColor: '#e74c3c'
-                }
-              ]
-            },
-            options: {
-              responsive: true,
-              plugins: {
-                legend: {
-                  display: false
-                }
-              },
-              scales: {
-                y: {
-                  beginAtZero: true
-                }
+    const initializeChart = () => {
+      if (statsChart.value) {
+        const ctx = statsChart.value.getContext('2d')
+        new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: ['Pending', 'Investigating', 'Resolved', 'High Urgency'],
+            datasets: [{
+              data: [
+                incidentStats.value.pending,
+                incidentStats.value.investigating,
+                incidentStats.value.resolved,
+                incidentStats.value.highUrgency
+              ],
+              backgroundColor: [
+                '#3498db',
+                '#f39c12',
+                '#2ecc71',
+                '#e74c3c'
+              ],
+              borderWidth: 2,
+              borderColor: '#fff'
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                display: false
               }
             }
-          })
-        }
+          }
+        })
+      }
+    }
+
+    onMounted(async () => {
+      await fetchData()
+      
+      // Initialize chart after data is loaded
+      setTimeout(() => {
+        initializeChart()
       }, 100)
     })
 
@@ -220,7 +295,10 @@ export default {
       responseTime,
       pendingItems,
       statsChart,
+      incidentStats,
+      incidentTypes,
       formatDate,
+      formatIncidentType,
       handleAction
     }
   }
@@ -291,13 +369,19 @@ h2 {
   padding-bottom: 10px;
 }
 
+h3 {
+  color: #2c3e50;
+  margin: 20px 0 15px 0;
+  font-size: 1.1rem;
+}
+
 .pending-list {
   margin-bottom: 20px;
 }
 
 .pending-item {
   display: grid;
-  grid-template-columns: 1fr 2fr 1fr auto;
+  grid-template-columns: 1fr 2fr 1fr auto auto;
   gap: 15px;
   padding: 12px 0;
   border-bottom: 1px solid #f5f5f5;
@@ -320,6 +404,29 @@ h2 {
 .pending-time {
   font-size: 0.9rem;
   color: #95a5a6;
+}
+
+.pending-urgency {
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.urgency-high {
+  background-color: #e74c3c;
+  color: white;
+}
+
+.urgency-medium {
+  background-color: #f39c12;
+  color: white;
+}
+
+.urgency-low {
+  background-color: #2ecc71;
+  color: white;
 }
 
 .action-btn {
@@ -353,6 +460,7 @@ h2 {
   display: flex;
   justify-content: space-around;
   flex-wrap: wrap;
+  margin-bottom: 20px;
 }
 
 .stat-note {
@@ -368,6 +476,40 @@ h2 {
   height: 12px;
   border-radius: 3px;
   margin-right: 8px;
+}
+
+.incident-types-summary {
+  border-top: 1px solid #eee;
+  padding-top: 15px;
+}
+
+.type-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.type-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+}
+
+.type-name {
+  color: #2c3e50;
+  font-size: 0.9rem;
+}
+
+.type-count {
+  background-color: #3498db;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  min-width: 20px;
+  text-align: center;
 }
 
 .admin-actions {

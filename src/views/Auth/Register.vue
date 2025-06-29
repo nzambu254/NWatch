@@ -19,6 +19,10 @@
           <label for="phone">Phone Number</label>
           <input type="tel" id="phone" v-model="phone" required>
         </div>
+        <div class="form-group" v-if="role === 'resident'">
+          <label for="location">Resident Location (e.g., Estate Name, House No.)</label>
+          <input type="text" id="location" v-model="location" :required="role === 'resident'">
+        </div>
         <div class="form-group">
           <label for="password">Password</label>
           <input type="password" id="password" v-model="password" required>
@@ -48,7 +52,7 @@
 
 <script>
 import { ref } from 'vue'
-import { auth, db } from '../../services/firebase'
+import { auth, db } from '../../services/firebase' // Make sure this path is correct for your project structure
 import { useRouter } from 'vue-router'
 import { doc, setDoc } from 'firebase/firestore'
 import { createUserWithEmailAndPassword } from 'firebase/auth'
@@ -60,6 +64,7 @@ export default {
     const lastName = ref('')
     const email = ref('')
     const phone = ref('')
+    const location = ref('') // New ref for resident location
     const password = ref('')
     const confirmPassword = ref('')
     const role = ref('resident')
@@ -69,6 +74,12 @@ export default {
     const register = async () => {
       if (password.value !== confirmPassword.value) {
         alert("Passwords don't match")
+        return
+      }
+
+      // Validate location for residents
+      if (role.value === 'resident' && !location.value.trim()) {
+        alert('Please enter your resident location.')
         return
       }
 
@@ -83,16 +94,21 @@ export default {
         )
         const user = userCredential.user
 
-        // Create user document in Firestore
-        await setDoc(doc(db, 'users', user.uid), {
+        // Prepare user data for Firestore
+        const userData = {
           firstName: firstName.value,
           lastName: lastName.value,
           email: email.value,
           phone: phone.value,
           role: role.value,
           approved: role.value === 'resident', // Auto-approve residents
-          createdAt: new Date()
-        })
+          createdAt: new Date(),
+          // Add location only if the user is a resident
+          ...(role.value === 'resident' && { location: location.value }) 
+        };
+
+        // Create user document in Firestore
+        await setDoc(doc(db, 'users', user.uid), userData);
 
         // Redirect based on role
         if (role.value === 'admin') {
@@ -102,7 +118,8 @@ export default {
           router.push('/dashboard')
         }
       } catch (error) {
-        alert(error.message)
+        console.error('Registration error:', error.message); // Log full error for debugging
+        alert(`Registration failed: ${error.message}`); // Provide more informative error to user
       } finally {
         loading.value = false
       }
@@ -113,6 +130,7 @@ export default {
       lastName, 
       email, 
       phone, 
+      location, // Expose new ref
       password, 
       confirmPassword, 
       role, 

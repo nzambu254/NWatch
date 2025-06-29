@@ -1,45 +1,43 @@
 <template>
-  <!-- Neighborhood Map Component -->
   <div class="neighborhood-map">
     <div class="map-header">
       <h1>Neighborhood Map</h1>
       <p class="map-subtitle">Interactive community safety and incident visualization</p>
     </div>
 
-    <!-- Map Controls Panel -->
     <div class="map-controls">
       <div class="control-section">
         <h3>🔍 Filters</h3>
         <div class="filter-group">
           <div class="filter-item">
             <label class="checkbox-label">
-              <input 
-                type="checkbox" 
-                v-model="showIncidents" 
+              <input
+                type="checkbox"
+                v-model="showIncidents"
                 @change="toggleIncidentMarkers"
               >
               <span class="checkmark"></span>
               Show Incidents ({{ incidents.length }})
             </label>
           </div>
-          
+
           <div class="filter-item">
             <label class="checkbox-label">
-              <input 
-                type="checkbox" 
-                v-model="showPOIs" 
+              <input
+                type="checkbox"
+                v-model="showPOIs"
                 @change="togglePOIMarkers"
               >
               <span class="checkmark"></span>
               Points of Interest ({{ pointsOfInterest.length }})
             </label>
           </div>
-          
+
           <div class="filter-item">
             <label class="checkbox-label">
-              <input 
-                type="checkbox" 
-                v-model="showHeatmap" 
+              <input
+                type="checkbox"
+                v-model="showHeatmap"
                 @change="toggleHeatmap"
               >
               <span class="checkmark"></span>
@@ -52,8 +50,8 @@
       <div class="control-section">
         <h3>🎯 Incident Types</h3>
         <div class="incident-types">
-          <div 
-            v-for="type in incidentTypes" 
+          <div
+            v-for="type in incidentTypes"
             :key="type.key"
             class="incident-type-item"
             :class="{ active: selectedIncidentTypes.includes(type.key) }"
@@ -85,17 +83,14 @@
       </div>
     </div>
 
-    <!-- Map Container -->
     <div class="map-container">
       <div id="map" class="map-canvas"></div>
-      
-      <!-- Map Loading State -->
+
       <div v-if="mapLoading" class="map-loading">
         <div class="loading-spinner"></div>
         <p>Loading neighborhood map...</p>
       </div>
 
-      <!-- Map Legend -->
       <div class="map-legend" v-if="!mapLoading">
         <h4>Legend</h4>
         <div class="legend-items">
@@ -114,24 +109,23 @@
         </div>
       </div>
 
-      <!-- Quick Actions -->
       <div class="quick-actions">
-        <button 
-          @click="centerOnUserLocation" 
+        <button
+          @click="centerOnUserLocation"
           class="action-btn location-btn"
           title="Center on my location"
         >
           📍
         </button>
-        <button 
-          @click="reportIncident" 
+        <button
+          @click="reportIncident"
           class="action-btn report-btn"
           title="Report new incident"
         >
           🚨
         </button>
-        <button 
-          @click="toggleSatelliteView" 
+        <button
+          @click="toggleSatelliteView"
           class="action-btn satellite-btn"
           title="Toggle satellite view"
         >
@@ -140,14 +134,13 @@
       </div>
     </div>
 
-    <!-- Incident Details Modal -->
     <div v-if="selectedIncident" class="modal-overlay" @click="closeIncidentModal">
       <div class="incident-modal" @click.stop>
         <div class="modal-header">
           <h3>{{ selectedIncident.title }}</h3>
           <button @click="closeIncidentModal" class="close-btn">×</button>
         </div>
-        
+
         <div class="modal-body">
           <div class="incident-info">
             <div class="info-row">
@@ -163,7 +156,7 @@
             <div class="info-row">
               <span class="info-label">Urgency:</span>
               <span :class="'urgency-badge urgency-' + selectedIncident.urgency">
-                {{ selectedIncident.urgency.toUpperCase() }}
+                {{ selectedIncident.urgency ? selectedIncident.urgency.toUpperCase() : 'N/A' }}
               </span>
             </div>
             <div class="info-row">
@@ -172,10 +165,10 @@
             </div>
             <div class="info-row">
               <span class="info-label">Date:</span>
-              <span class="info-value">{{ formatDateTime(selectedIncident.datetime) }}</span>
+              <span class="info-value">{{ formatDateTime(selectedIncident.createdAt) }}</span>
             </div>
           </div>
-          
+
           <div class="incident-description">
             <h4>Description:</h4>
             <p>{{ selectedIncident.description }}</p>
@@ -184,10 +177,10 @@
           <div v-if="selectedIncident.evidenceUrls && selectedIncident.evidenceUrls.length > 0" class="incident-evidence">
             <h4>Evidence:</h4>
             <div class="evidence-thumbnails">
-              <img 
-                v-for="(url, index) in selectedIncident.evidenceUrls" 
+              <img
+                v-for="(url, index) in selectedIncident.evidenceUrls"
                 :key="index"
-                :src="url" 
+                :src="url"
                 :alt="'Evidence ' + (index + 1)"
                 @click="openLightbox(url)"
                 class="evidence-thumb"
@@ -207,14 +200,13 @@
       </div>
     </div>
 
-    <!-- POI Details Modal -->
     <div v-if="selectedPOI" class="modal-overlay" @click="closePOIModal">
       <div class="poi-modal" @click.stop>
         <div class="modal-header">
           <h3>{{ selectedPOI.name }}</h3>
           <button @click="closePOIModal" class="close-btn">×</button>
         </div>
-        
+
         <div class="modal-body">
           <div class="poi-info">
             <div class="info-row">
@@ -234,7 +226,7 @@
               <span class="info-value">{{ selectedPOI.hours }}</span>
             </div>
           </div>
-          
+
           <div v-if="selectedPOI.description" class="poi-description">
             <h4>Description:</h4>
             <p>{{ selectedPOI.description }}</p>
@@ -252,7 +244,6 @@
       </div>
     </div>
 
-    <!-- Lightbox for Evidence -->
     <div v-if="lightboxImage" class="lightbox" @click="closeLightbox">
       <div class="lightbox-content" @click.stop>
         <img :src="lightboxImage" alt="Evidence" class="lightbox-image">
@@ -260,7 +251,6 @@
       </div>
     </div>
 
-    <!-- Location Picker Modal -->
     <div v-if="showLocationPicker" class="modal-overlay" @click="showLocationPicker = false">
       <div class="location-picker-modal" @click.stop>
         <div class="modal-header">
@@ -286,15 +276,14 @@
 </template>
 
 <script>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { auth, db, storage } from '../../services/firebase'
-import { 
-  collection, 
-  query, 
-  orderBy, 
-  onSnapshot, 
-  where,
+import {
+  collection,
+  query,
+  orderBy,
+  onSnapshot,
   limit,
   doc,
   setDoc,
@@ -306,7 +295,7 @@ export default {
   name: 'NeighborhoodMap',
   setup() {
     const router = useRouter()
-    
+
     // Load Google Maps API
     const loadGoogleMaps = () => {
       return new Promise((resolve) => {
@@ -316,6 +305,7 @@ export default {
         }
 
         const script = document.createElement('script');
+        // Replace 'YOUR_Maps_API_KEY' with your actual Google Maps API key
         script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyBux3LWgjt4Y2pz0vOoF0TBz4K49BWfzlY&libraries=visualization,places`;
         script.async = true;
         script.defer = true;
@@ -323,7 +313,7 @@ export default {
         document.head.appendChild(script);
       });
     };
-    
+
     // Reactive data
     const incidents = ref([])
     const pointsOfInterest = ref([])
@@ -335,25 +325,26 @@ export default {
     const lightboxImage = ref(null)
     const selectedCoordinates = ref(null)
     const showLocationPicker = ref(false)
-    
+
     // Map controls
     const showIncidents = ref(true)
     const showPOIs = ref(true)
     const showHeatmap = ref(false)
     const selectedIncidentTypes = ref(['theft', 'vandalism', 'suspicious_activity', 'noise_complaint', 'parking_violation', 'other'])
     const isSatelliteView = ref(false)
-    
+
     // Map markers
     const incidentMarkers = ref([])
     const poiMarkers = ref([])
     const userMarker = ref(null)
     const heatmapLayer = ref(null)
-    
+
     let unsubscribe = null
     let locationPickerMap = null
     let locationPickerMarker = null
 
     // Incident types configuration
+    // These keys should match the 'type' field values in your Firebase incidents
     const incidentTypes = ref([
       { key: 'theft', label: 'Theft', icon: '🔓' },
       { key: 'vandalism', label: 'Vandalism', icon: '🎨' },
@@ -425,7 +416,7 @@ export default {
     ])
 
     onMounted(async () => {
-      pointsOfInterest.value = defaultPOIs.value
+      pointsOfInterest.value = defaultPOIs.value // You might load these from Firebase too
       await loadGoogleMaps()
       initializeMap()
       loadIncidents()
@@ -438,9 +429,9 @@ export default {
       }
     })
 
-    // Computed properties
+    // Computed properties - DECLARE THESE FIRST
     const totalIncidents = computed(() => incidents.value.length)
-    
+
     const recentIncidents = computed(() => {
       const weekAgo = new Date()
       weekAgo.setDate(weekAgo.getDate() - 7)
@@ -449,22 +440,50 @@ export default {
         return incidentDate >= weekAgo
       }).length
     })
-    
-    const highUrgencyIncidents = computed(() => 
+
+    const highUrgencyIncidents = computed(() =>
       incidents.value.filter(incident => incident.urgency === 'high').length
     )
 
     const filteredIncidents = computed(() => {
-      return incidents.value.filter(incident => 
+      return incidents.value.filter(incident =>
         selectedIncidentTypes.value.includes(incident.type)
       )
     })
+
+    // Watch for changes - NOW THESE CAN BE DECLARED AFTER THEIR DEPENDENCIES
+    watch(filteredIncidents, () => {
+      updateIncidentMarkers()
+    })
+    watch(showIncidents, () => {
+      updateIncidentMarkers()
+    })
+    watch(showPOIs, () => {
+      updatePOIMarkers()
+    })
+    watch(showHeatmap, () => {
+      toggleHeatmap()
+    })
+    // This watch needs to be placed after `showLocationPicker` is defined, which it is.
+    watch(showLocationPicker, (newValue) => {
+      if (newValue) {
+        setTimeout(() => {
+          initLocationPickerMap();
+        }, 0);
+      } else {
+        if (locationPickerMarker) {
+          locationPickerMarker.setMap(null);
+          locationPickerMarker = null;
+        }
+        selectedCoordinates.value = null;
+      }
+    });
 
     // Initialize map
     const initializeMap = () => {
       // Default center (Nairobi, Kenya - adjust as needed)
       const defaultCenter = { lat: -1.2921, lng: 36.8219 }
-      
+
       // Create map
       map.value = new google.maps.Map(document.getElementById('map'), {
         zoom: 15,
@@ -486,7 +505,7 @@ export default {
       })
 
       mapLoading.value = false
-      
+
       // Initialize heatmap
       heatmapLayer.value = new google.maps.visualization.HeatmapLayer({
         data: [],
@@ -499,7 +518,7 @@ export default {
       const incidentsQuery = query(
         collection(db, 'incidents'),
         orderBy('createdAt', 'desc'),
-        limit(100)
+        limit(100) // Limit to recent incidents for performance
       )
 
       unsubscribe = onSnapshot(incidentsQuery, (snapshot) => {
@@ -507,7 +526,7 @@ export default {
           id: doc.id,
           ...doc.data()
         })).filter(incident => incident.lat && incident.lng) // Only incidents with coordinates
-        
+
         updateIncidentMarkers()
         updateHeatmap()
       }, (error) => {
@@ -524,8 +543,11 @@ export default {
               lat: position.coords.latitude,
               lng: position.coords.longitude
             }
-            
+
             // Create user location marker
+            if (userMarker.value) {
+              userMarker.value.setMap(null); // Clear existing marker
+            }
             userMarker.value = new google.maps.Marker({
               position: userLocation.value,
               map: map.value,
@@ -541,14 +563,17 @@ export default {
                 anchor: new google.maps.Point(12, 12)
               }
             })
-            
+
             // Center map on user location
             map.value.setCenter(userLocation.value)
           },
           (error) => {
             console.error('Error getting user location:', error)
+            // Handle error, e.g., display a message to the user
           }
         )
+      } else {
+        console.warn('Geolocation is not supported by this browser.')
       }
     }
 
@@ -557,12 +582,12 @@ export default {
       // Clear existing markers
       incidentMarkers.value.forEach(marker => marker.setMap(null))
       incidentMarkers.value = []
-      
+
       if (!showIncidents.value) return
-      
-      filteredIncidents.value.forEach(incident => {
+
+      filteredIncidents.value.forEach(incident => { // This now correctly accesses filteredIncidents
         if (!incident.lat || !incident.lng) return
-        
+
         const marker = new google.maps.Marker({
           position: { lat: parseFloat(incident.lat), lng: parseFloat(incident.lng) },
           map: map.value,
@@ -573,12 +598,12 @@ export default {
             anchor: new google.maps.Point(16, 32)
           }
         })
-        
+
         // Add click listener
         marker.addListener('click', () => {
           selectedIncident.value = incident
         })
-        
+
         incidentMarkers.value.push(marker)
       })
     }
@@ -588,9 +613,9 @@ export default {
       // Clear existing markers
       poiMarkers.value.forEach(marker => marker.setMap(null))
       poiMarkers.value = []
-      
+
       if (!showPOIs.value) return
-      
+
       pointsOfInterest.value.forEach(poi => {
         const marker = new google.maps.Marker({
           position: { lat: poi.lat, lng: poi.lng },
@@ -607,12 +632,12 @@ export default {
             anchor: new google.maps.Point(16, 32)
           }
         })
-        
+
         // Add click listener
         marker.addListener('click', () => {
           selectedPOI.value = poi
         })
-        
+
         poiMarkers.value.push(marker)
       })
     }
@@ -620,23 +645,23 @@ export default {
     // Update heatmap
     const updateHeatmap = () => {
       if (!heatmapLayer.value) return
-      
+
       const heatmapData = incidents.value
         .filter(incident => incident.lat && incident.lng)
         .map(incident => ({
           location: new google.maps.LatLng(parseFloat(incident.lat), parseFloat(incident.lng)),
           weight: incident.urgency === 'high' ? 3 : incident.urgency === 'medium' ? 2 : 1
         }))
-      
+
       heatmapLayer.value.setData(heatmapData)
     }
 
     // Get incident icon based on type and urgency
     const getIncidentIcon = (incident) => {
       const type = incidentTypes.value.find(t => t.key === incident.type)
-      const color = incident.urgency === 'high' ? '#DC3545' : 
-                   incident.urgency === 'medium' ? '#FFC107' : '#28A745'
-      
+      const color = incident.urgency === 'high' ? '#DC3545' :
+                    incident.urgency === 'medium' ? '#FFC107' : '#28A745'
+
       return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
         <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M16 2L6 28H26L16 2Z" fill="${color}" stroke="white" stroke-width="2"/>
@@ -669,7 +694,7 @@ export default {
       } else {
         selectedIncidentTypes.value.push(typeKey)
       }
-      updateIncidentMarkers()
+      // Markers will update automatically due to the watcher on filteredIncidents
     }
 
     const getIncidentCount = (typeKey) => {
@@ -692,8 +717,8 @@ export default {
 
     const toggleSatelliteView = () => {
       if (map.value) {
-        const mapType = isSatelliteView.value ? 
-          google.maps.MapTypeId.ROADMAP : 
+        const mapType = isSatelliteView.value ?
+          google.maps.MapTypeId.ROADMAP :
           google.maps.MapTypeId.SATELLITE
         map.value.setMapTypeId(mapType)
         isSatelliteView.value = !isSatelliteView.value
@@ -719,11 +744,11 @@ export default {
 
     // Action functions
     const getDirections = (location) => {
-      const destination = location.lat && location.lng ? 
-        `${location.lat},${location.lng}` : 
-        encodeURIComponent(location.address || location.location)
-      
-      const url = `https://www.google.com/maps/dir/?api=1&destination=${destination}`
+      const destination = location.lat && location.lng ?
+        `${location.lat},${location.lng}` :
+        encodeURIComponent(location.address || location.location || '')
+
+      const url = `http://maps.google.com/maps?q=${destination}`; // Corrected Google Maps URL for directions
       window.open(url, '_blank')
     }
 
@@ -735,11 +760,13 @@ export default {
           url: window.location.href
         })
       } else {
-        // Fallback to copying to clipboard
-        const shareText = `${incident.title}\n${incident.description}\nLocation: ${incident.location}`
+        const shareText = `${incident.title}\n${incident.description}\nLocation: ${incident.location}`;
         navigator.clipboard.writeText(shareText).then(() => {
-          alert('Incident details copied to clipboard!')
-        })
+          alert('Incident details copied to clipboard!');
+        }).catch(err => {
+          console.error('Failed to copy: ', err);
+          alert('Could not copy incident details to clipboard.');
+        });
       }
     }
 
@@ -752,13 +779,16 @@ export default {
     // Location Picker Functions
     const initLocationPickerMap = () => {
       const mapElement = document.getElementById('location-picker-map')
+      if (!mapElement) {
+        console.error('Location picker map element not found!');
+        return;
+      }
       locationPickerMap = new google.maps.Map(mapElement, {
         zoom: 15,
         center: userLocation.value || { lat: -1.2921, lng: 36.8219 },
         mapTypeId: google.maps.MapTypeId.ROADMAP
       })
 
-      // Add click listener
       locationPickerMap.addListener('click', (event) => {
         if (locationPickerMarker) {
           locationPickerMarker.setMap(null)
@@ -775,11 +805,10 @@ export default {
           lng: event.latLng.lng()
         }
 
-        // Reverse geocode to get address
         const geocoder = new google.maps.Geocoder()
         geocoder.geocode({ location: event.latLng }, (results, status) => {
           if (status === 'OK' && results[0]) {
-            incident.value.location = results[0].formatted_address
+            console.log("Selected Address:", results[0].formatted_address);
           }
         })
       })
@@ -787,7 +816,7 @@ export default {
 
     const confirmLocationSelection = () => {
       showLocationPicker.value = false
-      // The coordinates are already stored in selectedCoordinates
+      console.log('Confirmed selected coordinates:', selectedCoordinates.value);
     }
 
     // Geocoding function
@@ -811,7 +840,8 @@ export default {
 
     // Utility functions
     const formatIncidentType = (type) => {
-      return type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
+      if (!type) return 'N/A';
+      return type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
     }
 
     const formatStatus = (status) => {
@@ -821,7 +851,7 @@ export default {
         'investigating': 'Investigating',
         'resolved': 'Resolved'
       }
-      return statusMap[status] || status.replace(/\b\w/g, l => l.toUpperCase())
+      return statusMap[status] || (status ? status.replace(/\b\w/g, l => l.toUpperCase()) : 'N/A')
     }
 
     const formatDateTime = (datetime) => {

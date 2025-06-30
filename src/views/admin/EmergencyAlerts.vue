@@ -25,6 +25,14 @@
           <option value="medium">Medium</option>
         </select>
       </div>
+      <div class="filter-group">
+        <label>View Status:</label>
+        <select v-model="filterViewStatus">
+          <option value="all">All</option>
+          <option value="unviewed">Unviewed</option>
+          <option value="viewed">Viewed</option>
+        </select>
+      </div>
     </div>
 
     <div class="alerts-list">
@@ -33,9 +41,15 @@
         <p>No alerts found matching your criteria</p>
       </div>
 
-      <div v-for="alert in filteredAlerts" :key="alert.id" class="alert-card" :class="`urgency-${alert.urgency}`">
+      <div v-for="alert in filteredAlerts" :key="alert.id" 
+           class="alert-card" 
+           :class="[`urgency-${alert.urgency}`, { 'unviewed': !isAlertViewed(alert.id) }]"
+           @click="viewAlert(alert)">
         <div class="alert-header">
-          <div class="alert-title">{{ alert.type === 'emergency_contact' ? 'Emergency Contact' : alert.title || 'Emergency Alert' }}</div>
+          <div class="alert-title">
+            <span v-if="!isAlertViewed(alert.id)" class="unviewed-indicator"></span>
+            {{ alert.type === 'emergency_contact' ? 'Emergency Contact' : alert.title || 'Emergency Alert' }}
+          </div>
           <div class="alert-urgency">{{ alert.urgency }}</div>
         </div>
         <div class="alert-body">
@@ -53,35 +67,93 @@
               <i class="fas fa-user"></i>
               <span>Reported by: {{ alert.userDetails?.name || alert.reporterEmail || 'Anonymous' }}</span>
             </div>
-          </div>
-          
-          <!-- User Details Section -->
-          <div v-if="alert.userDetails" class="user-details-section">
-            <h4>User Contact Details:</h4>
-            <div class="user-details-grid">
-              <div class="detail-item">
-                <i class="fas fa-phone"></i>
-                <span>{{ alert.userDetails?.phone || 'Not provided' }}</span>
-              </div>
-              <div class="detail-item">
-                <i class="fas fa-envelope"></i>
-                <span>{{ alert.userDetails?.email || 'Not provided' }}</span>
-              </div>
-              <div class="detail-item">
-                <i class="fas fa-map-marked-alt"></i>
-                <span>{{ alert.userDetails?.location || 'Not provided' }}</span>
-              </div>
+            <div class="meta-item">
+              <i class="fas fa-eye"></i>
+              <span>{{ isAlertViewed(alert.id) ? 'Viewed' : 'Not viewed' }}</span>
             </div>
           </div>
         </div>
         <div class="alert-footer">
           <div class="alert-status">{{ alert.status }}</div>
           <div class="alert-actions" v-if="isAdmin">
-            <button v-if="alert.status === 'active'" @click="deactivateAlert(alert.id)" class="action-btn deactivate">
+            <button v-if="alert.status === 'active'" @click.stop="deactivateAlert(alert.id)" class="action-btn deactivate">
               <i class="fas fa-ban"></i> Deactivate
             </button>
-            <button @click="confirmDeleteAlert(alert.id)" class="action-btn delete">
+            <button @click.stop="confirmDeleteAlert(alert.id)" class="action-btn delete">
               <i class="fas fa-trash"></i> Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alert Detail Modal -->
+    <div v-if="showAlertDetailModal" class="modal-overlay" @click="closeAlertDetail">
+      <div class="modal-content alert-detail-modal" @click.stop>
+        <div class="modal-header">
+          <h3>{{ selectedAlert?.type === 'emergency_contact' ? 'Emergency Contact Details' : selectedAlert?.title || 'Emergency Alert Details' }}</h3>
+          <button @click="closeAlertDetail" class="close-btn">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body" v-if="selectedAlert">
+          <div class="alert-detail-header">
+            <div class="urgency-badge" :class="`urgency-${selectedAlert.urgency}`">
+              {{ selectedAlert.urgency.toUpperCase() }}
+            </div>
+            <div class="alert-status-badge" :class="`status-${selectedAlert.status}`">
+              {{ selectedAlert.status.toUpperCase() }}
+            </div>
+          </div>
+          
+          <div class="alert-detail-content">
+            <div class="detail-section">
+              <h4><i class="fas fa-map-marker-alt"></i> Location Information</h4>
+              <p><strong>Address:</strong> {{ selectedAlert.address || 'Location not specified' }}</p>
+              <p v-if="selectedAlert.location">
+                <strong>Coordinates:</strong> {{ selectedAlert.location.latitude }}, {{ selectedAlert.location.longitude }}
+              </p>
+            </div>
+
+            <div class="detail-section">
+              <h4><i class="fas fa-clock"></i> Time Information</h4>
+              <p><strong>Reported:</strong> {{ formatDateTime(selectedAlert.createdAt) }}</p>
+              <p v-if="selectedAlert.updatedAt"><strong>Last Updated:</strong> {{ formatDateTime(selectedAlert.updatedAt) }}</p>
+            </div>
+
+            <div class="detail-section" v-if="selectedAlert.reportedBy">
+              <h4><i class="fas fa-user"></i> Reporter Information</h4>
+              <p><strong>Reported by:</strong> {{ selectedAlert.userDetails?.name || selectedAlert.reporterEmail || 'Anonymous' }}</p>
+              <p v-if="selectedAlert.reporterEmail"><strong>Email:</strong> {{ selectedAlert.reporterEmail }}</p>
+            </div>
+
+            <!-- User Details Section -->
+            <div v-if="selectedAlert.userDetails" class="detail-section user-details-section">
+              <h4><i class="fas fa-address-card"></i> Contact Details</h4>
+              <div class="user-details-grid">
+                <div class="detail-item">
+                  <i class="fas fa-phone"></i>
+                  <span><strong>Phone:</strong> {{ selectedAlert.userDetails?.phone || 'Not provided' }}</span>
+                </div>
+                <div class="detail-item">
+                  <i class="fas fa-envelope"></i>
+                  <span><strong>Email:</strong> {{ selectedAlert.userDetails?.email || 'Not provided' }}</span>
+                </div>
+                <div class="detail-item">
+                  <i class="fas fa-map-marked-alt"></i>
+                  <span><strong>Location:</strong> {{ selectedAlert.userDetails?.location || 'Not provided' }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" v-if="isAdmin && selectedAlert">
+          <div class="modal-actions">
+            <button v-if="selectedAlert.status === 'active'" @click="deactivateAlert(selectedAlert.id)" class="action-btn deactivate">
+              <i class="fas fa-ban"></i> Deactivate Alert
+            </button>
+            <button @click="confirmDeleteAlert(selectedAlert.id)" class="action-btn delete">
+              <i class="fas fa-trash"></i> Delete Alert
             </button>
           </div>
         </div>
@@ -171,7 +243,7 @@
 <script>
 import { ref, computed, onMounted } from 'vue'
 import { auth, db } from '../../services/firebase'
-import { collection, query, where, getDocs, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, getDoc } from 'firebase/firestore'
+import { collection, query, where, getDocs, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, getDoc, arrayUnion } from 'firebase/firestore'
 import { useRouter } from 'vue-router'
 
 export default {
@@ -180,12 +252,16 @@ export default {
     const router = useRouter()
     const isAdmin = ref(false)
     const alerts = ref([])
+    const viewedAlerts = ref([])
     const showNewAlertModal = ref(false)
+    const showAlertDetailModal = ref(false)
     const showConfirmModal = ref(false)
     const isCreatingAlert = ref(false)
     const alertToDelete = ref(null)
+    const selectedAlert = ref(null)
     const filterStatus = ref('active')
     const filterUrgency = ref('all')
+    const filterViewStatus = ref('all')
 
     const newAlert = ref({
       title: '',
@@ -228,6 +304,55 @@ export default {
       } catch (error) {
         console.error('Error fetching alerts:', error)
       }
+    }
+
+    const fetchViewedAlerts = async () => {
+      try {
+        const user = auth.currentUser
+        if (user) {
+          const userDoc = await getDoc(doc(db, 'users', user.uid))
+          if (userDoc.exists()) {
+            const userData = userDoc.data()
+            viewedAlerts.value = userData.viewedAlerts || []
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching viewed alerts:', error)
+      }
+    }
+
+    const isAlertViewed = (alertId) => {
+      return viewedAlerts.value.includes(alertId)
+    }
+
+    const markAlertAsViewed = async (alertId) => {
+      try {
+        const user = auth.currentUser
+        if (user && !isAlertViewed(alertId)) {
+          // Update user's viewedAlerts array
+          await updateDoc(doc(db, 'users', user.uid), {
+            viewedAlerts: arrayUnion(alertId)
+          })
+          
+          // Update local state
+          viewedAlerts.value.push(alertId)
+        }
+      } catch (error) {
+        console.error('Error marking alert as viewed:', error)
+      }
+    }
+
+    const viewAlert = async (alert) => {
+      selectedAlert.value = alert
+      showAlertDetailModal.value = true
+      
+      // Mark as viewed
+      await markAlertAsViewed(alert.id)
+    }
+
+    const closeAlertDetail = () => {
+      showAlertDetailModal.value = false
+      selectedAlert.value = null
     }
 
     const formatDateTime = (timestamp) => {
@@ -273,6 +398,11 @@ export default {
           updatedAt: serverTimestamp()
         })
         await fetchAlerts()
+        
+        // Close detail modal if this alert is being viewed
+        if (selectedAlert.value?.id === alertId) {
+          closeAlertDetail()
+        }
       } catch (error) {
         console.error('Error deactivating alert:', error)
       }
@@ -288,6 +418,11 @@ export default {
       try {
         await deleteDoc(doc(db, 'emergencies', alertId))
         await fetchAlerts()
+        
+        // Close detail modal if this alert is being viewed
+        if (selectedAlert.value?.id === alertId) {
+          closeAlertDetail()
+        }
       } catch (error) {
         console.error('Error deleting alert:', error)
       }
@@ -316,7 +451,12 @@ export default {
         const urgencyMatch = filterUrgency.value === 'all' || 
                            alert.urgency === filterUrgency.value
         
-        return statusMatch && urgencyMatch
+        // Filter by view status
+        const viewStatusMatch = filterViewStatus.value === 'all' ||
+                              (filterViewStatus.value === 'viewed' && isAlertViewed(alert.id)) ||
+                              (filterViewStatus.value === 'unviewed' && !isAlertViewed(alert.id))
+        
+        return statusMatch && urgencyMatch && viewStatusMatch
       }).sort((a, b) => {
         // Sort by most recent first
         return b.createdAt.toDate() - a.createdAt.toDate()
@@ -326,19 +466,27 @@ export default {
     onMounted(async () => {
       await checkAdminStatus()
       await fetchAlerts()
+      await fetchViewedAlerts()
     })
 
     return {
       isAdmin,
       alerts,
       filteredAlerts,
+      viewedAlerts,
       newAlert,
       showNewAlertModal,
+      showAlertDetailModal,
       showConfirmModal,
       isCreatingAlert,
       alertToDelete,
+      selectedAlert,
       filterStatus,
       filterUrgency,
+      filterViewStatus,
+      isAlertViewed,
+      viewAlert,
+      closeAlertDetail,
       formatDateTime,
       createNewAlert,
       deactivateAlert,
@@ -394,6 +542,7 @@ export default {
   padding: 15px;
   background-color: #f8f9fa;
   border-radius: 8px;
+  flex-wrap: wrap;
 }
 
 .filter-group {
@@ -416,7 +565,7 @@ export default {
 
 .alerts-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 20px;
   margin-top: 20px;
 }
@@ -427,6 +576,35 @@ export default {
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.alert-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.15);
+}
+
+.alert-card.unviewed {
+  border: 2px solid #ff6b6b;
+  background-color: #fef8f8;
+}
+
+.unviewed-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background-color: #ff6b6b;
+  border-radius: 50%;
+  margin-right: 8px;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
 }
 
 .alert-header {
@@ -442,6 +620,8 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
 }
 
 .alert-urgency {
@@ -479,38 +659,6 @@ export default {
 
 .meta-item i {
   width: 16px;
-  text-align: center;
-}
-
-/* User Details Section */
-.user-details-section {
-  margin-top: 15px;
-  padding: 10px;
-  background-color: #f8f9fa;
-  border-radius: 5px;
-  border-left: 4px solid #dc3545;
-}
-
-.user-details-section h4 {
-  margin-bottom: 10px;
-  color: #dc3545;
-}
-
-.user-details-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 10px;
-}
-
-.detail-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.detail-item i {
-  color: #6c757d;
-  width: 20px;
   text-align: center;
 }
 
@@ -646,6 +794,10 @@ export default {
   box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
 }
 
+.alert-detail-modal {
+  max-width: 800px;
+}
+
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -676,6 +828,113 @@ export default {
   padding: 20px;
 }
 
+.alert-detail-header {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.urgency-badge, .alert-status-badge {
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.urgency-badge.urgency-critical {
+  background-color: #ff6b6b;
+  color: white;
+}
+
+.urgency-badge.urgency-high {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+.urgency-badge.urgency-medium {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.status-active {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.status-expired {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+.alert-detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.detail-section {
+  background-color: #f8f9fa;
+  padding: 15px;
+  border-radius: 8px;
+  border-left: 4px solid #42b983;
+}
+
+.detail-section h4 {
+  margin: 0 0 10px 0;
+  color: #2c3e50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-section p {
+  margin: 5px 0;
+  color: #555;
+}
+
+.user-details-section {
+  border-left-color: #dc3545;
+}
+
+.user-details-section h4 {
+  color: #dc3545;
+}
+
+.user-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 15px;
+  margin-top: 10px;
+}
+
+.detail-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background-color: white;
+  border-radius: 5px;
+}
+
+.detail-item i {
+  color: #6c757d;
+  width: 20px;
+  text-align: center;
+}
+
+.modal-footer {
+  padding: 15px 20px;
+  border-top: 1px solid #eee;
+  background-color: #f8f9fa;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .form-group {
   margin-bottom: 20px;
 }
@@ -688,18 +947,13 @@ export default {
 }
 
 .form-group input,
-.form-group textarea,
-.form-group select {
+.form-group select,
+.form-group textarea {
   width: 100%;
   padding: 10px;
   border: 1px solid #ddd;
   border-radius: 5px;
   font-size: 1rem;
-}
-
-.form-group textarea {
-  min-height: 100px;
-  resize: vertical;
 }
 
 .form-row {
@@ -724,7 +978,7 @@ export default {
   border: 1px solid #ddd;
   border-radius: 5px;
   cursor: pointer;
-  transition: background-color 0.3s;
+  transition: all 0.3s;
 }
 
 .cancel-btn:hover {
@@ -738,7 +992,7 @@ export default {
   border: none;
   border-radius: 5px;
   cursor: pointer;
-  transition: background-color 0.3s;
+  transition: all 0.3s;
 }
 
 .submit-btn:hover {
@@ -750,14 +1004,14 @@ export default {
   cursor: not-allowed;
 }
 
-/* Confirm Modal */
+/* Confirmation Modal Styles */
 .confirm-modal {
   background-color: white;
   border-radius: 10px;
-  width: 90%;
-  max-width: 400px;
   padding: 30px;
   text-align: center;
+  max-width: 500px;
+  width: 90%;
 }
 
 .confirm-icon {
@@ -790,7 +1044,7 @@ export default {
   border: none;
   border-radius: 5px;
   cursor: pointer;
-  transition: background-color 0.3s;
+  transition: all 0.3s;
 }
 
 .delete-btn:hover {
@@ -799,15 +1053,9 @@ export default {
 
 /* Responsive Styles */
 @media (max-width: 768px) {
-  .header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 15px;
-  }
-  
   .alert-filters {
     flex-direction: column;
-    gap: 10px;
+    gap: 15px;
   }
   
   .form-row {
@@ -819,8 +1067,172 @@ export default {
     grid-template-columns: 1fr;
   }
   
+  .modal-content {
+    width: 95%;
+  }
+  
   .user-details-grid {
     grid-template-columns: 1fr;
   }
+}
+
+@media (max-width: 480px) {
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+  
+  .alert-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  
+  .alert-footer {
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  
+  .alert-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  
+  .modal-actions {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .confirm-actions {
+    flex-direction: column;
+    gap: 10px;
+  }
+}
+
+/* Animation for new alerts */
+@keyframes highlight {
+  0% { background-color: rgba(255, 255, 0, 0.3); }
+  100% { background-color: transparent; }
+}
+
+.new-alert {
+  animation: highlight 2s ease-out;
+}
+
+/* Status colors */
+.status-active {
+  color: #28a745;
+}
+
+.status-expired {
+  color: #dc3545;
+}
+
+/* Map container for future use */
+.map-container {
+  height: 300px;
+  width: 100%;
+  margin-top: 15px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #ddd;
+}
+
+/* Loading state */
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 50px;
+}
+
+.loading-spinner {
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  border-radius: 50%;
+  border-top: 4px solid #42b983;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Empty state enhancements */
+.no-alerts {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  margin-top: 20px;
+}
+
+.no-alerts i {
+  font-size: 3rem;
+  color: #95a5a6;
+  margin-bottom: 20px;
+}
+
+.no-alerts p {
+  font-size: 1.2rem;
+  color: #666;
+  text-align: center;
+  max-width: 400px;
+}
+
+/* Tooltip styles */
+.tooltip {
+  position: relative;
+  display: inline-block;
+}
+
+.tooltip .tooltiptext {
+  visibility: hidden;
+  width: 120px;
+  background-color: #555;
+  color: #fff;
+  text-align: center;
+  border-radius: 6px;
+  padding: 5px;
+  position: absolute;
+  z-index: 1;
+  bottom: 125%;
+  left: 50%;
+  margin-left: -60px;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.tooltip:hover .tooltiptext {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Additional utility classes */
+.text-muted {
+  color: #6c757d !important;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.mt-3 {
+  margin-top: 1rem;
+}
+
+.mb-3 {
+  margin-bottom: 1rem;
+}
+
+.p-3 {
+  padding: 1rem;
 }
 </style>

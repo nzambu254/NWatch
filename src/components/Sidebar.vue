@@ -19,7 +19,7 @@
         </router-link>
         <router-link to="/admin/emergency-alerts" class="nav-link">
           <i class="fas fa-exclamation-triangle"></i> Emergency Alerts
-          <span v-if="hasUnviewedAlerts" class="notification-dot"></span>
+          <span v-if="alertCount > 0" class="alert-count">{{ alertCount }}</span>
         </router-link>
         <router-link to="/admin/neighborhood-map" class="nav-link">
           <i class="fas fa-map"></i> Neighborhood Map
@@ -42,7 +42,7 @@
         </router-link>
         <router-link to="/police/emergency-alerts" class="nav-link">
           <i class="fas fa-exclamation-triangle"></i> Emergency Alerts
-          <span v-if="hasUnviewedAlerts" class="notification-dot"></span>
+          <span v-if="alertCount > 0" class="alert-count">{{ alertCount }}</span>
         </router-link>
         <router-link to="/police/neighborhood-map" class="nav-link">
           <i class="fas fa-map"></i> Neighborhood Map
@@ -65,15 +65,9 @@
         </router-link>
         <router-link to="/broadcast-alerts" class="nav-link">
           <i class="fas fa-bell"></i> Broadcast Alerts
-          <span v-if="hasUnviewedAlerts" class="notification-dot"></span>
+          <span v-if="alertCount > 0" class="alert-count">{{ alertCount }}</span>
         </router-link>
       </template>
-      
-      <div class="sidebar-footer">
-        <button @click="logout" class="logout-btn">
-          <i class="fas fa-sign-out-alt"></i> Logout
-        </button>
-      </div>
     </nav>
   </aside>
 </template>
@@ -83,15 +77,13 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { auth } from '../services/firebase'
 import { doc, getDoc, collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db } from '../services/firebase'
-import { useRouter } from 'vue-router'
 
 export default {
   name: 'Sidebar',
   setup() {
     const isAdmin = ref(false)
     const isPolice = ref(false)
-    const hasUnviewedAlerts = ref(false)
-    const router = useRouter()
+    const alertCount = ref(0)
     let alertsUnsubscribe = null
     let userUnsubscribe = null
 
@@ -144,18 +136,18 @@ export default {
           }
           
           alertsUnsubscribe = onSnapshot(alertsQuery, (querySnapshot) => {
-            // Check if there are any unviewed alerts
-            const unviewedExists = querySnapshot.docs.some(doc => {
+            // Count unviewed alerts
+            const unviewedCount = querySnapshot.docs.filter(doc => {
               const alertId = doc.id
               return !viewedAlerts.includes(alertId)
-            })
+            }).length
             
-            hasUnviewedAlerts.value = unviewedExists
+            alertCount.value = unviewedCount
           })
         })
       } catch (error) {
         console.error('Error checking for unviewed alerts:', error)
-        hasUnviewedAlerts.value = false
+        alertCount.value = 0
       }
     }
 
@@ -168,7 +160,7 @@ export default {
         } else {
           isAdmin.value = false
           isPolice.value = false
-          hasUnviewedAlerts.value = false
+          alertCount.value = 0
           
           // Clean up listeners
           if (alertsUnsubscribe) {
@@ -193,32 +185,10 @@ export default {
       }
     })
 
-    const logout = async () => {
-      try {
-        // Clean up listeners before logout
-        if (alertsUnsubscribe) {
-          alertsUnsubscribe()
-          alertsUnsubscribe = null
-        }
-        if (userUnsubscribe) {
-          userUnsubscribe()
-          userUnsubscribe = null
-        }
-        
-        await auth.signOut()
-        // Clear any session data
-        sessionStorage.removeItem('userData')
-        router.push('/login')
-      } catch (error) {
-        console.error('Logout error:', error)
-      }
-    }
-
     return { 
       isAdmin, 
       isPolice,
-      hasUnviewedAlerts,
-      logout 
+      alertCount
     }
   }
 }
@@ -301,61 +271,39 @@ export default {
   font-size: 1rem;
 }
 
-.notification-dot {
+.alert-count {
   position: absolute;
-  top: 8px;
+  top: 50%;
   right: 15px;
-  width: 8px;
-  height: 8px;
-  background-color: #ff6b6b;
-  border-radius: 50%;
-  animation: pulse 2s infinite;
-  box-shadow: 0 0 6px rgba(255, 107, 107, 0.8);
+  transform: translateY(-50%);
+  background-color: #ff4757;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: bold;
+  padding: 3px 7px;
+  border-radius: 10px;
+  min-width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 4px rgba(255, 71, 87, 0.4);
+  animation: pulse-count 2s infinite;
 }
 
-@keyframes pulse {
+@keyframes pulse-count {
   0% {
     opacity: 1;
-    transform: scale(1);
+    transform: translateY(-50%) scale(1);
   }
   50% {
-    opacity: 0.7;
-    transform: scale(1.1);
+    opacity: 0.8;
+    transform: translateY(-50%) scale(1.05);
   }
   100% {
     opacity: 1;
-    transform: scale(1);
+    transform: translateY(-50%) scale(1);
   }
-}
-
-.sidebar-footer {
-  margin-top: auto;
-  padding: 15px 20px 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.logout-btn {
-  width: 100%;
-  padding: 12px 20px;
-  background: none;
-  border: none;
-  color: rgba(255, 255, 255, 0.9);
-  text-align: left;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  font-size: 0.95rem;
-  display: flex;
-  align-items: center;
-}
-
-.logout-btn:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-  color: white;
-}
-
-.logout-btn i {
-  margin-right: 12px;
-  font-size: 1rem;
 }
 
 /* Responsive adjustments */
@@ -370,7 +318,7 @@ export default {
     transform: translateX(0);
   }
   
-  .notification-dot {
+  .alert-count {
     right: 12px;
   }
 }

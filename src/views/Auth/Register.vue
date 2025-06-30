@@ -23,6 +23,10 @@
           <label for="location">Resident Location (e.g., Estate Name, House No.)</label>
           <input type="text" id="location" v-model="location" :required="role === 'resident'">
         </div>
+        <div class="form-group" v-if="role === 'police'">
+          <label for="badgeNumber">Badge Number</label>
+          <input type="text" id="badgeNumber" v-model="badgeNumber" :required="role === 'police'">
+        </div>
         <div class="form-group">
           <label for="password">Password</label>
           <input type="password" id="password" v-model="password" required>
@@ -36,6 +40,7 @@
           <select id="role" v-model="role" class="form-select" required>
             <option value="" disabled>Select your role</option>
             <option value="resident">Resident</option>
+            <option value="police">Police Officer (Requires approval)</option>
             <option value="admin">Admin (Requires approval)</option>
           </select>
         </div>
@@ -52,7 +57,7 @@
 
 <script>
 import { ref } from 'vue'
-import { auth, db } from '../../services/firebase' // Make sure this path is correct for your project structure
+import { auth, db } from '../../services/firebase'
 import { useRouter } from 'vue-router'
 import { doc, setDoc } from 'firebase/firestore'
 import { createUserWithEmailAndPassword } from 'firebase/auth'
@@ -64,7 +69,8 @@ export default {
     const lastName = ref('')
     const email = ref('')
     const phone = ref('')
-    const location = ref('') // New ref for resident location
+    const location = ref('')
+    const badgeNumber = ref('')
     const password = ref('')
     const confirmPassword = ref('')
     const role = ref('resident')
@@ -80,6 +86,12 @@ export default {
       // Validate location for residents
       if (role.value === 'resident' && !location.value.trim()) {
         alert('Please enter your resident location.')
+        return
+      }
+
+      // Validate badge number for police
+      if (role.value === 'police' && !badgeNumber.value.trim()) {
+        alert('Please enter your badge number.')
         return
       }
 
@@ -101,25 +113,26 @@ export default {
           email: email.value,
           phone: phone.value,
           role: role.value,
-          approved: role.value === 'resident', // Auto-approve residents
+          approved: role.value === 'resident', // Auto-approve residents only
           createdAt: new Date(),
-          // Add location only if the user is a resident
-          ...(role.value === 'resident' && { location: location.value }) 
+          // Role-specific fields
+          ...(role.value === 'resident' && { location: location.value }),
+          ...(role.value === 'police' && { badgeNumber: badgeNumber.value })
         };
 
         // Create user document in Firestore
         await setDoc(doc(db, 'users', user.uid), userData);
 
         // Redirect based on role
-        if (role.value === 'admin') {
-          alert('Your admin account requires approval. You will be notified once approved.')
+        if (role.value === 'admin' || role.value === 'police') {
+          alert('Your account requires approval. You will be notified once approved.')
           router.push('/login')
         } else {
           router.push('/dashboard')
         }
       } catch (error) {
-        console.error('Registration error:', error.message); // Log full error for debugging
-        alert(`Registration failed: ${error.message}`); // Provide more informative error to user
+        console.error('Registration error:', error.message);
+        alert(`Registration failed: ${error.message}`);
       } finally {
         loading.value = false
       }
@@ -130,7 +143,8 @@ export default {
       lastName, 
       email, 
       phone, 
-      location, // Expose new ref
+      location,
+      badgeNumber,
       password, 
       confirmPassword, 
       role, 

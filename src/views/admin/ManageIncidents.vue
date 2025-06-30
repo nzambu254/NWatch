@@ -1,4 +1,3 @@
-
 <template>
   <div class="manage-incidents">
     <div class="admin-header">
@@ -65,6 +64,12 @@
           <option value="week">This Week</option>
           <option value="month">This Month</option>
         </select>
+
+        <select v-model="assignedFilter" class="filter-select">
+          <option value="">All Assignments</option>
+          <option value="unassigned">Unassigned</option>
+          <option value="assigned">Assigned to Police</option>
+        </select>
       </div>
     </div>
 
@@ -130,6 +135,10 @@
               <span class="detail-label">📅 Reported:</span>
               <span class="detail-value">{{ formatDateTime(incident.createdAt) }}</span>
             </div>
+            <div class="detail-item" v-if="incident.assignedToPolice">
+              <span class="detail-label">👮 Assigned To:</span>
+              <span class="detail-value assigned-police">{{ getAssignedPoliceInfo(incident) }}</span>
+            </div>
           </div>
 
           <div v-if="!incident.anonymous && incident.reporterInfo" class="reporter-details">
@@ -138,6 +147,12 @@
               <div class="reporter-item" v-if="incident.reporterInfo.name">
                 <span class="reporter-label">Name:</span>
                 <span class="reporter-value">{{ incident.reporterInfo.name }}</span>
+              </div>
+              <div class="reporter-item" v-if="incident.reporterInfo.firstName || incident.reporterInfo.lastName">
+                <span class="reporter-label">Full Name:</span>
+                <span class="reporter-value">
+                  {{ incident.reporterInfo.firstName || '' }} {{ incident.reporterInfo.lastName || '' }}
+                </span>
               </div>
               <div class="reporter-item" v-if="incident.reporterInfo.email">
                 <span class="reporter-label">Email:</span>
@@ -188,6 +203,24 @@
                 <option value="investigating">Investigating</option>
                 <option value="resolved">Resolved</option>
                 <option value="closed">Closed</option>
+              </select>
+            </div>
+
+            <div class="assignment-controls">
+              <label>Assign to Police:</label>
+              <select
+                :value="incident.assignedToPolice || ''"
+                @change="assignToPolice(incident.id, $event.target.value)"
+                class="police-assignment-select"
+              >
+                <option value="">Select Police Officer</option>
+                <option
+                  v-for="officer in policeOfficers"
+                  :key="officer.id"
+                  :value="officer.id"
+                >
+                  {{ getOfficerDisplayName(officer) }} ({{ officer.email }})
+                </option>
               </select>
             </div>
 
@@ -287,7 +320,10 @@ import {
   updateDoc,
   deleteDoc,
   arrayUnion,
-  serverTimestamp
+  serverTimestamp,
+  where,
+  getDocs,
+  getDoc
 } from 'firebase/firestore'
 
 export default {
@@ -297,12 +333,14 @@ export default {
 
     // Reactive data
     const incidents = ref([])
+    const policeOfficers = ref([])
     const loading = ref(true)
     const searchQuery = ref('')
     const statusFilter = ref('')
     const typeFilter = ref('')
     const urgencyFilter = ref('')
     const dateFilter = ref('')
+    const assignedFilter = ref('')
     const lightboxImage = ref(null)
     const showModal = ref(false)
     const selectedIncident = ref(null)
@@ -319,6 +357,7 @@ export default {
       }
 
       loadAllIncidents()
+      loadPoliceOfficers()
     })
 
     onUnmounted(() => {
@@ -346,6 +385,36 @@ export default {
       })
     }
 
+    // Load police officers from users collection
+    const loadPoliceOfficers = async () => {
+      try {
+        const policeQuery = query(
+          collection(db, 'users'),
+          where('role', '==', 'police')
+        )
+        
+        const snapshot = await getDocs(policeQuery)
+        policeOfficers.value = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }))
+        console.log('Loaded police officers:', policeOfficers.value)
+      } catch (error) {
+        console.error('Error loading police officers:', error)
+      }
+    }
+
+    // Helper function to get officer display name
+    const getOfficerDisplayName = (officer) => {
+      if (officer.firstName && officer.lastName) {
+        return `${officer.firstName} ${officer.lastName}`
+      }
+      if (officer.firstName) return officer.firstName
+      if (officer.name) return officer.name
+      if (officer.email) return officer.email.split('@')[0]
+      return 'Unknown Officer'
+    }
+
     // Computed properties for statistics
     const totalIncidents = computed(() => incidents.value.length)
 
@@ -363,7 +432,8 @@ export default {
 
     // Computed properties for filtering
     const hasActiveFilters = computed(() => {
-      return searchQuery.value || statusFilter.value || typeFilter.value || urgencyFilter.value || dateFilter.value
+      return searchQuery.value || statusFilter.value || typeFilter.value || 
+             urgencyFilter.value || dateFilter.value || assignedFilter.value
     })
 
     const filteredIncidents = computed(() => {
@@ -398,13 +468,24 @@ export default {
         filtered = filtered.filter(incident => incident.urgency === urgencyFilter.value)
       }
 
+      // Assignment filter
+      if (assignedFilter.value) {
+        if (assignedFilter.value === 'unassigned') {
+          filtered = filtered.filter(incident => !incident.assignedToPolice)
+        } else if (assignedFilter.value === 'assigned') {
+          filtered = filtered.filter(incident => incident.assignedToPolice)
+        }
+      }
+
       // Date filter
       if (dateFilter.value) {
         const now = new Date()
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
         filtered = filtered.filter(incident => {
-          const incidentDate = incident.createdAt.toDate ? incident.createdAt.toDate() : new Date(incident.createdAt)
+          const incidentDate = incident.createdAt && incident.createdAt.toDate ? 
+            incident.createdAt.toDate() : 
+            new Date(incident.createdAt)
 
           switch (dateFilter.value) {
             case 'today':
@@ -447,29 +528,63 @@ export default {
 
     const getReporterInfo = (reporterInfo) => {
       if (!reporterInfo) return 'Unknown'
+      if (reporterInfo.firstName || reporterInfo.lastName) {
+        return `${reporterInfo.firstName || ''} ${reporterInfo.lastName || ''}`.trim()
+      }
       if (reporterInfo.name) return reporterInfo.name
       if (reporterInfo.email) return reporterInfo.email
       return 'Unknown'
     }
 
-    // Admin action functions - using JavaScript Date for timestamp in arrayUnion
+    const getAssignedPoliceInfo = (incident) => {
+      if (!incident.assignedToPolice) return 'Not assigned'
+      
+      const officer = policeOfficers.value.find(officer => officer.id === incident.assignedToPolice)
+      if (officer) {
+        return `${getOfficerDisplayName(officer)} (${officer.email})`
+      }
+      
+      return incident.assignedToPoliceName || 'Unknown Officer'
+    }
+
+    // Get current user's name
+    const getCurrentUserName = async () => {
+      const currentUser = auth.currentUser
+      if (!currentUser) return 'Admin'
+      
+      try {
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid))
+        if (userDoc.exists()) {
+          const userData = userDoc.data()
+          if (userData.firstName || userData.lastName) {
+            return `${userData.firstName || ''} ${userData.lastName || ''}`.trim()
+          }
+          if (userData.name) return userData.name
+        }
+        return 'Admin'
+      } catch (error) {
+        console.error('Error getting user name:', error)
+        return 'Admin'
+      }
+    }
+
+    // Admin action functions
     const updateIncidentStatus = async (incidentId, newStatus) => {
       try {
         const incidentRef = doc(db, 'incidents', incidentId)
-        const currentTime = new Date() // Use JavaScript Date
+        const currentTime = new Date()
+        const adminName = await getCurrentUserName()
 
-        // First update the status
         await updateDoc(incidentRef, {
           status: newStatus,
           updatedAt: serverTimestamp()
         })
 
-        // Then add status update to history using JavaScript Date
         await updateDoc(incidentRef, {
           statusUpdates: arrayUnion({
             message: `Status changed to ${formatStatus(newStatus)}`,
-            timestamp: currentTime, // Use JavaScript Date here
-            adminName: auth.currentUser.displayName || 'Admin'
+            timestamp: currentTime,
+            adminName: adminName
           })
         })
       } catch (error) {
@@ -478,25 +593,82 @@ export default {
       }
     }
 
+    const assignToPolice = async (incidentId, policeId) => {
+      try {
+        const incidentRef = doc(db, 'incidents', incidentId)
+        const currentTime = new Date()
+        const adminName = await getCurrentUserName()
+        
+        if (!policeId) {
+          // Unassign from police
+          await updateDoc(incidentRef, {
+            assignedToPolice: null,
+            assignedToPoliceName: null,
+            assignedToPoliceEmail: null,
+            assignedOfficerId: null,
+            updatedAt: serverTimestamp()
+          })
+
+          await updateDoc(incidentRef, {
+            statusUpdates: arrayUnion({
+              message: 'Incident unassigned from police officer',
+              timestamp: currentTime,
+              adminName: adminName
+            })
+          })
+        } else {
+          // Assign to police
+          const officer = policeOfficers.value.find(officer => officer.id === policeId)
+          
+          if (officer) {
+            const officerName = getOfficerDisplayName(officer)
+            const officerEmail = officer.email || 'No email'
+            
+            await updateDoc(incidentRef, {
+              assignedToPolice: policeId,
+              assignedToPoliceName: officerName,
+              assignedToPoliceEmail: officerEmail,
+              assignedOfficerId: policeId,
+              status: 'investigating',
+              updatedAt: serverTimestamp()
+            })
+
+            await updateDoc(incidentRef, {
+              statusUpdates: arrayUnion({
+                message: `Incident assigned to Police Officer: ${officerName} (${officerEmail})`,
+                timestamp: currentTime,
+                adminName: adminName
+              })
+            })
+          } else {
+            throw new Error('Police officer not found')
+          }
+        }
+      } catch (error) {
+        console.error('Error assigning incident to police:', error)
+        alert('Failed to assign incident to police: ' + error.message)
+      }
+    }
+
     const assignIncident = async (incidentId) => {
       try {
         const incidentRef = doc(db, 'incidents', incidentId)
-        const currentTime = new Date() // Use JavaScript Date
+        const currentTime = new Date()
+        const currentUser = auth.currentUser
+        const adminName = await getCurrentUserName()
 
-        // First update the assignment
         await updateDoc(incidentRef, {
           status: 'investigating',
-          assignedTo: auth.currentUser.uid,
-          assignedToName: auth.currentUser.displayName || 'Admin',
+          assignedTo: currentUser.uid,
+          assignedToName: adminName,
           updatedAt: serverTimestamp()
         })
 
-        // Then add status update to history using JavaScript Date
         await updateDoc(incidentRef, {
           statusUpdates: arrayUnion({
-            message: `Incident assigned to ${auth.currentUser.displayName || 'Admin'} and moved to investigating`,
-            timestamp: currentTime, // Use JavaScript Date here
-            adminName: auth.currentUser.displayName || 'Admin'
+            message: `Incident assigned to ${adminName} and moved to investigating`,
+            timestamp: currentTime,
+            adminName: adminName
           })
         })
       } catch (error) {
@@ -541,25 +713,24 @@ export default {
 
       try {
         const incidentRef = doc(db, 'incidents', selectedIncident.value.id)
-        const currentTime = new Date() // Use JavaScript Date
+        const currentTime = new Date()
         const updateData = {
           updatedAt: serverTimestamp()
         }
 
-        // Update status if selected
         if (newStatus.value) {
           updateData.status = newStatus.value
         }
 
-        // First update the basic fields
         await updateDoc(incidentRef, updateData)
 
-        // Then add status update to history using JavaScript Date
+        const adminName = await getCurrentUserName()
+
         await updateDoc(incidentRef, {
           statusUpdates: arrayUnion({
             message: updateMessage.value,
-            timestamp: currentTime, // Use JavaScript Date here
-            adminName: auth.currentUser.displayName || 'Admin'
+            timestamp: currentTime,
+            adminName: adminName
           })
         })
 
@@ -581,12 +752,14 @@ export default {
 
     return {
       incidents,
+      policeOfficers,
       loading,
       searchQuery,
       statusFilter,
       typeFilter,
       urgencyFilter,
       dateFilter,
+      assignedFilter,
       lightboxImage,
       showModal,
       selectedIncident,
@@ -603,7 +776,10 @@ export default {
       formatDate,
       formatDateTime,
       getReporterInfo,
+      getAssignedPoliceInfo,
+      getOfficerDisplayName,
       updateIncidentStatus,
+      assignToPolice,
       assignIncident,
       deleteIncident,
       showUpdateModal,
@@ -820,39 +996,39 @@ export default {
   text-transform: uppercase;
 }
 
-.urgency-low {
+.urgency-badge.urgency-low {
   background-color: #d4edda;
   color: #155724;
 }
 
-.urgency-medium {
+.urgency-badge.urgency-medium {
   background-color: #fff3cd;
   color: #856404;
 }
 
-.urgency-high {
+.urgency-badge.urgency-high {
   background-color: #f8d7da;
   color: #721c24;
 }
 
-.status-pending {
+.status-badge.status-pending {
   background-color: #e2e3e5;
-  color: #495057;
+  color: #383d41;
 }
 
-.status-investigating {
+.status-badge.status-investigating {
   background-color: #cce5ff;
   color: #004085;
 }
 
-.status-resolved {
+.status-badge.status-resolved {
   background-color: #d4edda;
   color: #155724;
 }
 
-.status-closed {
-  background-color: #f8d7da;
-  color: #721c24;
+.status-badge.status-closed {
+  background-color: #d1ecf1;
+  color: #0c5460;
 }
 
 .incident-content {
@@ -861,105 +1037,112 @@ export default {
 
 .incident-title {
   color: #2c3e50;
-  margin-bottom: 10px;
-  font-size: 18px;
+  margin: 0 0 10px;
+  font-size: 20px;
 }
 
 .incident-description {
-  color: #555;
-  line-height: 1.6;
+  color: #34495e;
   margin-bottom: 20px;
+  line-height: 1.5;
 }
 
 .incident-details {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 15px;
   margin-bottom: 20px;
 }
 
 .detail-item {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  gap: 5px;
 }
 
 .detail-label {
   font-weight: 600;
-  min-width: 100px;
+  color: #2c3e50;
 }
 
 .detail-value {
-  color: #555;
+  color: #7f8c8d;
 }
 
 .detail-value.anonymous {
   font-style: italic;
-  color: #7f8c8d;
 }
 
-/* Enhanced Reporter Details Styling */
+.detail-value.assigned-police {
+  color: #3498db;
+  font-weight: 500;
+}
+
 .reporter-details {
-  margin-top: 20px;
-  padding: 15px;
   background-color: #f8f9fa;
   border-radius: 8px;
-  border-left: 4px solid #007bff;
+  padding: 15px;
+  margin-bottom: 20px;
 }
 
 .reporter-details h4 {
+  margin-top: 0;
+  margin-bottom: 15px;
   color: #2c3e50;
-  margin-bottom: 12px;
-  font-size: 16px;
 }
 
 .reporter-info {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
 }
 
 .reporter-item {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
 }
 
 .reporter-label {
-  font-weight: 600;
-  color: #495057;
-  min-width: 60px;
+  font-size: 12px;
+  color: #7f8c8d;
+  text-transform: uppercase;
+  margin-bottom: 2px;
 }
 
 .reporter-value {
-  color: #212529;
-  word-break: break-word;
+  font-size: 14px;
+  color: #2c3e50;
+  word-break: break-all;
 }
 
 .evidence-section {
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid #eee;
+  margin-bottom: 20px;
 }
 
 .evidence-section h4 {
+  margin-top: 0;
+  margin-bottom: 15px;
   color: #2c3e50;
-  margin-bottom: 10px;
 }
 
 .evidence-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 15px;
+}
+
+.evidence-item {
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #ddd;
 }
 
 .evidence-thumbnail {
   width: 100%;
-  height: 100px;
+  height: 100%;
   object-fit: cover;
-  border-radius: 5px;
   cursor: pointer;
-    transition: transform 0.2s;
+  transition: transform 0.2s;
 }
 
 .evidence-thumbnail:hover {
@@ -967,128 +1150,129 @@ export default {
 }
 
 .admin-actions {
-  background-color: #f8f9fa;
+  background-color: #f1f8fe;
+  border-radius: 8px;
   padding: 15px;
-  border-radius: 5px;
-  margin-top: 20px;
-  border-top: 1px solid #eee;
-}
-
-.status-controls {
+  margin-bottom: 20px;
   display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 15px;
+  flex-wrap: wrap;
+  gap: 20px;
 }
 
-.status-controls label {
+.status-controls, .assignment-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.status-controls label, .assignment-controls label {
+  font-size: 14px;
   font-weight: 600;
   color: #2c3e50;
 }
 
-.status-update-select {
-  padding: 6px 10px;
+.status-update-select, .police-assignment-select {
+  padding: 8px 12px;
   border: 1px solid #ddd;
-  border-radius: 4px;
+  border-radius: 5px;
   font-size: 14px;
+  width: 100%;
 }
 
 .action-buttons {
   display: flex;
   gap: 10px;
+  align-items: flex-end;
   flex-wrap: wrap;
 }
 
 .update-btn, .assign-btn, .delete-btn {
   padding: 8px 16px;
   border: none;
-  border-radius: 4px;
+  border-radius: 5px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.3s;
+  transition: background-color 0.2s;
 }
 
 .update-btn {
-  background-color: #007bff;
+  background-color: #3498db;
   color: white;
 }
 
 .update-btn:hover {
-  background-color: #0056b3;
+  background-color: #2980b9;
 }
 
 .assign-btn {
-  background-color: #28a745;
+  background-color: #2ecc71;
   color: white;
 }
 
 .assign-btn:hover {
-  background-color: #1e7e34;
+  background-color: #27ae60;
 }
 
 .delete-btn {
-  background-color: #dc3545;
+  background-color: #e74c3c;
   color: white;
 }
 
 .delete-btn:hover {
-  background-color: #c82333;
+  background-color: #c0392b;
 }
 
 .status-updates {
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid #eee;
+  background-color: white;
+  border-radius: 8px;
+  padding: 15px;
+  border: 1px solid #eee;
 }
 
 .status-updates h4 {
+  margin-top: 0;
+  margin-bottom: 15px;
   color: #2c3e50;
-  margin-bottom: 10px;
 }
 
 .updates-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 15px;
 }
 
 .update-item {
-  background-color: #f8f9fa;
-  padding: 10px;
-  border-radius: 5px;
-  border-left: 3px solid #42b983;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #eee;
+}
+
+.update-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
 }
 
 .update-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
   margin-bottom: 5px;
-}
-
-.update-date {
-  font-size: 12px;
+  font-size: 13px;
   color: #7f8c8d;
 }
 
-.update-admin {
-  font-size: 12px;
-  color: #007bff;
-  font-weight: 600;
-}
-
 .update-text {
-  color: #555;
-  font-size: 14px;
+  color: #34495e;
+  line-height: 1.5;
 }
 
 .modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
+  right: 0;
+  bottom: 0;
   background-color: rgba(0, 0, 0, 0.5);
   display: flex;
   justify-content: center;
@@ -1098,19 +1282,17 @@ export default {
 
 .modal-content {
   background-color: white;
-  border-radius: 8px;
-  width: 90%;
+  border-radius: 10px;
+  width: 100%;
   max-width: 500px;
-  max-height: 90vh;
-  overflow-y: auto;
   padding: 25px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 5px 30px rgba(0, 0, 0, 0.2);
 }
 
 .modal-content h3 {
-  color: #2c3e50;
+  margin-top: 0;
   margin-bottom: 20px;
-  text-align: center;
+  color: #2c3e50;
 }
 
 .modal-body {
@@ -1123,7 +1305,7 @@ export default {
 
 .form-group label {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: 5px;
   font-weight: 600;
   color: #2c3e50;
 }
@@ -1132,17 +1314,16 @@ export default {
   width: 100%;
   padding: 10px;
   border: 1px solid #ddd;
-  border-radius: 4px;
+  border-radius: 5px;
   font-size: 14px;
   resize: vertical;
-  min-height: 100px;
 }
 
 .status-select {
   width: 100%;
-  padding: 8px;
+  padding: 8px 12px;
   border: 1px solid #ddd;
-  border-radius: 4px;
+  border-radius: 5px;
   font-size: 14px;
 }
 
@@ -1155,11 +1336,11 @@ export default {
 .cancel-btn, .confirm-btn {
   padding: 8px 16px;
   border: none;
-  border-radius: 4px;
+  border-radius: 5px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.3s;
+  transition: background-color 0.2s;
 }
 
 .cancel-btn {
@@ -1172,25 +1353,25 @@ export default {
 }
 
 .confirm-btn {
-  background-color: #28a745;
+  background-color: #42b983;
   color: white;
 }
 
 .confirm-btn:hover {
-  background-color: #218838;
+  background-color: #369f76;
 }
 
 .lightbox {
   position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.8);
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.9);
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 2000;
+  z-index: 1000;
 }
 
 .lightbox-content {
@@ -1202,8 +1383,7 @@ export default {
 .lightbox-image {
   max-width: 100%;
   max-height: 80vh;
-  border-radius: 4px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  object-fit: contain;
 }
 
 .lightbox-close {
@@ -1218,39 +1398,25 @@ export default {
   padding: 5px;
 }
 
-/* Responsive adjustments */
 @media (max-width: 768px) {
   .admin-stats {
     grid-template-columns: repeat(2, 1fr);
   }
-
+  
   .filter-controls {
     flex-direction: column;
   }
-
+  
   .filter-select {
     width: 100%;
   }
-
-  .incident-header {
+  
+  .admin-actions {
     flex-direction: column;
-    align-items: flex-start;
   }
-
-  .incident-meta {
-    flex-wrap: wrap;
-  }
-
+  
   .action-buttons {
-    flex-direction: column;
-  }
-
-  .update-btn, .assign-btn, .delete-btn {
-    width: 100%;
-  }
-
-  .reporter-info {
-    grid-template-columns: 1fr;
+    justify-content: flex-start;
   }
 }
 
@@ -1258,25 +1424,21 @@ export default {
   .admin-stats {
     grid-template-columns: 1fr;
   }
-
-  .modal-actions {
-    flex-direction: column;
-  }
-
-  .cancel-btn, .confirm-btn {
-    width: 100%;
-  }
-
-  .incident-meta {
+  
+  .incident-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: 5px;
   }
-
+  
+  .incident-meta {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
   .incident-badges {
     width: 100%;
     justify-content: flex-start;
+    margin-top: 10px;
   }
 }
 </style>
-```

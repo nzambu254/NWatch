@@ -55,10 +55,10 @@ export default {
         if (userDoc.exists()) {
           const userData = userDoc.data()
           
-          // Check if admin is approved
-          if (userData.role === 'admin' && !userData.approved) {
+          // Check if admin/police is approved
+          if ((userData.role === 'admin' || userData.role === 'police') && !userData.approved) {
             await auth.signOut()
-            alert('Your admin account is pending approval. Please contact the system administrator.')
+            alert('Your account is pending approval. Please contact the system administrator.')
             return
           }
 
@@ -70,8 +70,14 @@ export default {
             approved: userData.approved
           }))
 
-          // Redirect to appropriate dashboard
-          const redirectPath = userData.role === 'admin' ? '/admin/dashboard' : '/dashboard'
+          // Redirect to appropriate dashboard based on role
+          let redirectPath = '/dashboard' // default for residents
+          if (userData.role === 'admin') {
+            redirectPath = '/admin/dashboard'
+          } else if (userData.role === 'police') {
+            redirectPath = '/police/dashboard'
+          }
+          
           await router.push(redirectPath)
         } else {
           throw new Error('User data not found')

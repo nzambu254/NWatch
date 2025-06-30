@@ -56,6 +56,32 @@ const routes = [
     component: () => import('../views/admin/SystemSettings.vue'),
     meta: { requiresAuth: true, requiresAdmin: true }
   },
+  // Police Routes
+  {
+    path: '/police/dashboard',
+    name: 'PoliceDashboard',
+    component: () => import('../views/police/Dashboard.vue'),
+    meta: { requiresAuth: true, requiresPolice: true }
+  },
+  {
+    path: '/police/assigned-incidents',
+    name: 'AssignedIncidents',
+    component: () => import('../views/police/AssignedIncidents.vue'),
+    meta: { requiresAuth: true, requiresPolice: true }
+  },
+  {
+    path: '/police/neighborhood-map',
+    name: 'PoliceNeighborhoodMap',
+    component: () => import('../views/police/NeighborhoodMap.vue'),
+    meta: { requiresAuth: true, requiresPolice: true }
+  },
+  {
+    path: '/police/incident-details/:id',
+    name: 'PoliceIncidentDetails',
+    component: () => import('../views/police/IncidentDetails.vue'),
+    meta: { requiresAuth: true, requiresPolice: true },
+    props: true
+  },
   // Resident Routes
   {
     path: '/dashboard',
@@ -146,6 +172,7 @@ router.beforeEach(async (to, from, next) => {
 
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth)
   const requiresAdmin = to.matched.some(record => record.meta.requiresAdmin)
+  const requiresPolice = to.matched.some(record => record.meta.requiresPolice)
   const user = auth.currentUser
 
   // If route requires authentication and user is not logged in
@@ -157,7 +184,14 @@ router.beforeEach(async (to, from, next) => {
   // If user is logged in and trying to access login page, redirect to appropriate dashboard
   if (user && to.path === '/login') {
     if (currentUserData) {
-      const redirectPath = currentUserData.role === 'admin' ? '/admin/dashboard' : '/dashboard'
+      let redirectPath = '/dashboard' // default for residents
+      
+      if (currentUserData.role === 'admin') {
+        redirectPath = '/admin/dashboard'
+      } else if (currentUserData.role === 'police') {
+        redirectPath = '/police/dashboard'
+      }
+      
       next(redirectPath)
     } else {
       next('/dashboard') // fallback
@@ -168,7 +202,19 @@ router.beforeEach(async (to, from, next) => {
   // If route requires admin access
   if (requiresAuth && requiresAdmin) {
     if (!currentUserData || currentUserData.role !== 'admin' || !currentUserData.approved) {
-      next('/dashboard') // Redirect non-admins to resident dashboard
+      // Redirect to appropriate dashboard based on role
+      const redirectPath = currentUserData?.role === 'police' ? '/police/dashboard' : '/dashboard'
+      next(redirectPath)
+      return
+    }
+  }
+
+  // If route requires police access
+  if (requiresAuth && requiresPolice) {
+    if (!currentUserData || currentUserData.role !== 'police' || !currentUserData.approved) {
+      // Redirect to appropriate dashboard based on role
+      const redirectPath = currentUserData?.role === 'admin' ? '/admin/dashboard' : '/dashboard'
+      next(redirectPath)
       return
     }
   }

@@ -17,6 +17,9 @@
         <router-link to="/admin/broadcast-alerts" class="nav-link">
           <i class="fas fa-bullhorn"></i> Broadcast Alerts
         </router-link>
+        <router-link to="/admin/emergency-alerts" class="nav-link">
+          <i class="fas fa-exclamation-triangle"></i> Emergency Alerts
+        </router-link>
         <router-link to="/admin/neighborhood-map" class="nav-link">
           <i class="fas fa-map"></i> Neighborhood Map
         </router-link>
@@ -35,6 +38,9 @@
         </router-link>
         <router-link to="/police/assigned-incidents" class="nav-link">
           <i class="fas fa-clipboard-list"></i> Assigned Incidents
+        </router-link>
+        <router-link to="/police/emergency-alerts" class="nav-link">
+          <i class="fas fa-exclamation-triangle"></i> Emergency Alerts
         </router-link>
         <router-link to="/police/neighborhood-map" class="nav-link">
           <i class="fas fa-map"></i> Neighborhood Map

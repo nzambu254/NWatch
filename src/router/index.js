@@ -39,6 +39,12 @@ const routes = [
     meta: { requiresAuth: true, requiresAdmin: true }
   },
   {
+    path: '/admin/emergency-alerts',
+    name: 'AdminEmergencyAlerts',
+    component: () => import('../views/admin/EmergencyAlerts.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true }
+  },
+  {
     path: '/admin/neighborhood-map',
     name: 'AdminNeighborhoodMap',
     component: () => import('../views/admin/NeighborhoodMap.vue'),
@@ -67,6 +73,12 @@ const routes = [
     path: '/police/assigned-incidents',
     name: 'AssignedIncidents',
     component: () => import('../views/police/AssignedIncidents.vue'),
+    meta: { requiresAuth: true, requiresPolice: true }
+  },
+  {
+    path: '/police/emergency-alerts',
+    name: 'PoliceEmergencyAlerts',
+    component: () => import('../views/police/EmergencyAlerts.vue'),
     meta: { requiresAuth: true, requiresPolice: true }
   },
   {

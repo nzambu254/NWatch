@@ -2,6 +2,24 @@
   <div class="report-incident">
     <h1>Report an Incident</h1>
     
+    <!-- Emergency Contact Section -->
+    <div class="emergency-section">
+      <div class="emergency-card">
+        <div class="emergency-icon">🚨</div>
+        <div class="emergency-content">
+          <h3>Emergency?</h3>
+          <p>If this is a life-threatening emergency, contact police immediately</p>
+          <button @click="contactPolice" class="emergency-btn" :disabled="isContactingPolice">
+            {{ isContactingPolice ? 'Contacting...' : '📞 Contact Police Now' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider">
+      <span>OR</span>
+    </div>
+
     <form @submit.prevent="submitIncident" class="incident-form">
       <div class="form-group">
         <label for="incidentType">Incident Type</label>
@@ -12,6 +30,7 @@
           <option value="suspicious_activity">Suspicious Activity</option>
           <option value="noise_complaint">Noise Complaint</option>
           <option value="parking_violation">Parking Violation</option>
+          <option value="emergency">Emergency</option>
           <option value="other">Other</option>
         </select>
       </div>
@@ -99,13 +118,36 @@
         {{ isSubmitting ? 'Submitting...' : 'Submit Report' }}
       </button>
     </form>
+
+    <!-- Success Notification Modal -->
+    <div v-if="showSuccessModal" class="modal-overlay">
+      <div class="success-modal">
+        <div class="success-icon">✅</div>
+        <h3>Report Submitted Successfully!</h3>
+        <p>Your incident report has been submitted and relevant authorities have been notified.</p>
+        <p><strong>Reference ID:</strong> {{ reportId }}</p>
+        <button @click="closeSuccessModal" class="action-button">OK</button>
+      </div>
+    </div>
+
+    <!-- Emergency Contact Modal -->
+    <div v-if="showEmergencyModal" class="modal-overlay">
+      <div class="emergency-modal">
+        <div class="emergency-icon-large">🚨</div>
+        <h3>Emergency Alert Sent!</h3>
+        <p>Police have been notified of your emergency and will respond shortly.</p>
+        <p><strong>Emergency ID:</strong> {{ emergencyId }}</p>
+        <p class="emergency-instructions">Stay calm and stay safe. Help is on the way.</p>
+        <button @click="closeEmergencyModal" class="action-button emergency-action">OK</button>
+      </div>
+    </div>
   </div>
 </template>
 
 <script>
 import { ref, onMounted } from 'vue'
 import { auth, db, storage } from '../../services/firebase'
-import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, doc, setDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { useRouter } from 'vue-router'
 
@@ -114,14 +156,20 @@ export default {
   setup() {
     const router = useRouter()
     const isSubmitting = ref(false)
+    const isContactingPolice = ref(false)
     const uploadedFiles = ref([])
     const selectedCoordinates = ref(null)
     const showLocationPicker = ref(false)
+    const showSuccessModal = ref(false)
+    const showEmergencyModal = ref(false)
+    const reportId = ref('')
+    const emergencyId = ref('')
     
     const urgencyLevels = [
       { value: 'low', label: 'Low' },
       { value: 'medium', label: 'Medium' },
-      { value: 'high', label: 'High' }
+      { value: 'high', label: 'High' },
+      { value: 'critical', label: 'Critical' }
     ]
 
     const incident = ref({
@@ -182,6 +230,122 @@ export default {
         urls.push(downloadURL)
       }
       return urls
+    }
+
+    // Get all police officers
+    const getPoliceOfficers = async () => {
+      try {
+        const usersRef = collection(db, 'users')
+        const policeQuery = query(usersRef, where('role', '==', 'police'))
+        const querySnapshot = await getDocs(policeQuery)
+        
+        const policeOfficers = []
+        querySnapshot.forEach((doc) => {
+          policeOfficers.push({
+            id: doc.id,
+            ...doc.data()
+          })
+        })
+        
+        return policeOfficers
+      } catch (error) {
+        console.error('Error fetching police officers:', error)
+        return []
+      }
+    }
+
+    // Send push notification to police
+    const sendPoliceNotification = async (notificationData) => {
+      try {
+        const policeOfficers = await getPoliceOfficers()
+        
+        // Create notifications for each police officer
+        const notifications = policeOfficers.map(officer => ({
+          recipientId: officer.id,
+          recipientName: `${officer.firstName} ${officer.lastName}`,
+          ...notificationData,
+          createdAt: serverTimestamp(),
+          read: false
+        }))
+
+        // Save notifications to Firestore
+        const notificationsRef = collection(db, 'notifications')
+        const promises = notifications.map(notification => 
+          setDoc(doc(notificationsRef), notification)
+        )
+        
+        await Promise.all(promises)
+        
+        console.log(`Notifications sent to ${policeOfficers.length} police officers`)
+      } catch (error) {
+        console.error('Error sending police notifications:', error)
+      }
+    }
+
+    // Send success notification to user
+    const sendUserNotification = async (userId, notificationData) => {
+      if (userId) {
+        try {
+          const userNotificationRef = doc(collection(db, 'notifications'))
+          await setDoc(userNotificationRef, {
+            recipientId: userId,
+            ...notificationData,
+            createdAt: serverTimestamp(),
+            read: false
+          })
+        } catch (error) {
+          console.error('Error sending user notification:', error)
+        }
+      }
+    }
+
+    // Emergency contact function
+    const contactPolice = async () => {
+      if (!auth.currentUser) {
+        alert('Please log in to contact police')
+        return
+      }
+
+      isContactingPolice.value = true
+
+      try {
+        const emergencyRef = doc(collection(db, 'emergencies'))
+        emergencyId.value = emergencyRef.id
+        
+        const currentUser = auth.currentUser
+        const emergencyData = {
+          reportedBy: currentUser.uid,
+          reporterEmail: currentUser.email,
+          type: 'emergency_contact',
+          status: 'active',
+          createdAt: serverTimestamp(),
+          location: selectedCoordinates.value ? {
+            lat: selectedCoordinates.value.lat,
+            lng: selectedCoordinates.value.lng,
+            address: incident.value.location
+          } : { address: incident.value.location || 'Location not specified' },
+          urgency: 'critical'
+        }
+
+        await setDoc(emergencyRef, emergencyData)
+
+        // Send immediate notification to all police
+        await sendPoliceNotification({
+          type: 'emergency_alert',
+          title: '🚨 EMERGENCY ALERT',
+          message: `Emergency contact request from ${currentUser.email}`,
+          emergencyId: emergencyRef.id,
+          priority: 'critical',
+          actionRequired: true
+        })
+
+        showEmergencyModal.value = true
+      } catch (error) {
+        console.error('Error contacting police:', error)
+        alert('Failed to contact police. Please try again or call emergency services directly.')
+      } finally {
+        isContactingPolice.value = false
+      }
     }
 
     // Geocode location to get coordinates
@@ -275,7 +439,10 @@ export default {
           incident.value.evidenceUrls = await uploadFiles()
         }
 
-        // Create incident document with consistent structure
+        // Create incident document
+        const incidentRef = doc(collection(db, 'incidents'))
+        reportId.value = incidentRef.id
+        
         const incidentData = {
           type: incident.value.type,
           title: incident.value.title,
@@ -292,20 +459,38 @@ export default {
           evidenceUrls: incident.value.evidenceUrls || [],
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-          status: 'open', // Match map expectations
+          status: 'open',
           reportedBy: incident.value.anonymous ? null : auth.currentUser.uid,
           datetime: new Date(`${incident.value.date}T${incident.value.time}`).toISOString()
         }
 
-        const incidentsCollection = collection(db, 'incidents')
-        const newIncidentRef = doc(incidentsCollection)
-        await setDoc(newIncidentRef, incidentData)
+        await setDoc(incidentRef, incidentData)
 
-        // Redirect to map to see the reported incident
-        router.push({
-          path: '/neighborhood-map',
-          query: { reported: 'true' }
-        })
+        // Send notification to police if urgent or emergency
+        if (['high', 'critical', 'emergency'].includes(incident.value.urgency) || incident.value.type === 'emergency') {
+          await sendPoliceNotification({
+            type: 'incident_report',
+            title: `${incident.value.urgency.toUpperCase()} Incident Reported`,
+            message: `${incident.value.type}: ${incident.value.title}`,
+            incidentId: incidentRef.id,
+            location: incident.value.location,
+            urgency: incident.value.urgency,
+            actionRequired: incident.value.urgency === 'critical' || incident.value.type === 'emergency'
+          })
+        }
+
+        // Send success notification to user
+        if (!incident.value.anonymous && auth.currentUser) {
+          await sendUserNotification(auth.currentUser.uid, {
+            type: 'incident_confirmation',
+            title: 'Incident Report Submitted',
+            message: `Your ${incident.value.type} report has been successfully submitted and is being reviewed.`,
+            incidentId: incidentRef.id,
+            referenceId: incidentRef.id
+          })
+        }
+
+        showSuccessModal.value = true
       } catch (error) {
         console.error('Error submitting incident:', error)
         alert('Failed to submit incident. Please try again.')
@@ -314,18 +499,38 @@ export default {
       }
     }
 
+    const closeSuccessModal = () => {
+      showSuccessModal.value = false
+      router.push({
+        path: '/neighborhood-map',
+        query: { reported: 'true' }
+      })
+    }
+
+    const closeEmergencyModal = () => {
+      showEmergencyModal.value = false
+    }
+
     return {
       incident,
       urgencyLevels,
       uploadedFiles,
       isSubmitting,
+      isContactingPolice,
       selectedCoordinates,
       showLocationPicker,
+      showSuccessModal,
+      showEmergencyModal,
+      reportId,
+      emergencyId,
       handleFileUpload,
       removeFile,
       openLocationPicker,
       closeLocationPicker,
-      submitIncident
+      submitIncident,
+      contactPolice,
+      closeSuccessModal,
+      closeEmergencyModal
     }
   }
 }
@@ -342,6 +547,88 @@ h1 {
   color: #2c3e50;
   margin-bottom: 30px;
   text-align: center;
+}
+
+/* Emergency Section Styles */
+.emergency-section {
+  margin-bottom: 30px;
+}
+
+.emergency-card {
+  display: flex;
+  align-items: center;
+  background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+  color: white;
+  padding: 20px;
+  border-radius: 15px;
+  box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
+  animation: pulse 2s infinite;
+}
+
+.emergency-icon {
+  font-size: 3rem;
+  margin-right: 20px;
+}
+
+.emergency-content h3 {
+  margin: 0 0 10px 0;
+  font-size: 1.5rem;
+}
+
+.emergency-content p {
+  margin: 0 0 15px 0;
+  opacity: 0.9;
+}
+
+.emergency-btn {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 2px solid white;
+  padding: 12px 24px;
+  border-radius: 25px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.emergency-btn:hover:not(:disabled) {
+  background: white;
+  color: #ff6b6b;
+}
+
+.emergency-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+@keyframes pulse {
+  0% { box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3); }
+  50% { box-shadow: 0 4px 25px rgba(255, 107, 107, 0.5); }
+  100% { box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3); }
+}
+
+.divider {
+  text-align: center;
+  position: relative;
+  margin: 30px 0;
+}
+
+.divider::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: #ddd;
+}
+
+.divider span {
+  background: #f8f9fa;
+  padding: 0 20px;
+  color: #666;
+  position: relative;
 }
 
 .incident-form {
@@ -418,6 +705,7 @@ h1 {
   display: flex;
   gap: 15px;
   margin-top: 8px;
+  flex-wrap: wrap;
 }
 
 .urgency-levels label {
@@ -445,6 +733,12 @@ h1 {
 .urgency-high {
   background-color: #f8d7da;
   color: #721c24;
+}
+
+.urgency-critical {
+  background-color: #ff6b6b;
+  color: white;
+  font-weight: bold;
 }
 
 input[type="file"] {
@@ -585,6 +879,74 @@ input[type="file"] {
   background-color: #369f6e;
 }
 
+/* Success Modal */
+.success-modal {
+  background: white;
+  padding: 30px;
+  border-radius: 15px;
+  text-align: center;
+  max-width: 400px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.success-icon {
+  font-size: 4rem;
+  margin-bottom: 20px;
+}
+
+.success-modal h3 {
+  color: #42b983;
+  margin-bottom: 15px;
+}
+
+.success-modal p {
+  color: #666;
+  margin-bottom: 10px;
+}
+
+/* Emergency Modal */
+.emergency-modal {
+  background: white;
+  padding: 30px;
+  border-radius: 15px;
+  text-align: center;
+  max-width: 400px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.emergency-icon-large {
+  font-size: 4rem;
+  margin-bottom: 20px;
+  animation: pulse 1s infinite;
+}
+
+.emergency-modal h3 {
+  color: #ff6b6b;
+  margin-bottom: 15px;
+}
+
+.emergency-modal p {
+  color: #666;
+  margin-bottom: 10px;
+}
+
+.emergency-instructions {
+  background: #fff3cd;
+  padding: 15px;
+  border-radius: 8px;
+  color: #856404;
+  font-weight: 600;
+  margin: 15px 0;
+}
+
+.emergency-action {
+  background-color: #ff6b6b;
+}
+
+.emergency-action:hover {
+  background-color: #ee5a52;
+}
+
 @media (max-width: 768px) {
   .form-row {
     flex-direction: column;
@@ -602,6 +964,16 @@ input[type="file"] {
   
   .location-picker-map {
     height: 300px;
+  }
+
+  .emergency-card {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .emergency-icon {
+    margin-right: 0;
+    margin-bottom: 15px;
   }
 }
 </style>

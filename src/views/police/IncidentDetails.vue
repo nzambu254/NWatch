@@ -105,7 +105,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { auth, db } from '../../services/firebase'
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore'
 
 export default {
   name: 'IncidentDetails',
@@ -166,29 +166,33 @@ export default {
       try {
         const note = {
           content: newNote.value.trim(),
-          author: auth.currentUser.email,
+          author: auth.currentUser?.email || 'Anonymous Officer',
           timestamp: new Date()
         }
 
-        const updatedNotes = incident.value.notes 
-          ? [...incident.value.notes, note] 
-          : [note]
-
+        // Use arrayUnion to add the note to the notes array
         await updateDoc(doc(db, 'incidents', incident.value.id), {
-          notes: updatedNotes
+          notes: arrayUnion(note)
         })
 
-        incident.value.notes = updatedNotes
+        // Update local state
+        if (!incident.value.notes) {
+          incident.value.notes = []
+        }
+        incident.value.notes.push(note)
+        
         showNoteModal.value = false
       } catch (error) {
         console.error('Error adding note:', error)
-        alert('Failed to add note')
+        alert('Failed to add note. Please try again.')
       }
     }
 
     const formatDate = (timestamp) => {
       if (!timestamp) return 'N/A'
-      const date = timestamp.toDate()
+      
+      // Handle both Firestore Timestamp and JavaScript Date objects
+      const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
       return date.toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'short',
@@ -200,9 +204,13 @@ export default {
 
     const sortedNotes = computed(() => {
       if (!incident.value?.notes) return []
-      return [...incident.value.notes].sort((a, b) => 
-        b.timestamp.toDate() - a.timestamp.toDate()
-      )
+      
+      return [...incident.value.notes].sort((a, b) => {
+        // Handle both Firestore Timestamp and JavaScript Date objects
+        const dateA = a.timestamp.toDate ? a.timestamp.toDate() : new Date(a.timestamp)
+        const dateB = b.timestamp.toDate ? b.timestamp.toDate() : new Date(b.timestamp)
+        return dateB - dateA
+      })
     })
 
     onMounted(() => {
@@ -302,6 +310,11 @@ export default {
 
 .status-pending {
   background-color: #f39c12;
+  color: white;
+}
+
+.status-investigating {
+  background-color: #3498db;
   color: white;
 }
 

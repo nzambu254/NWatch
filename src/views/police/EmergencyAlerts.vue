@@ -51,7 +51,26 @@
             </div>
             <div class="meta-item" v-if="alert.reportedBy">
               <i class="fas fa-user"></i>
-              <span>Reported by: {{ alert.reporterEmail || 'Anonymous' }}</span>
+              <span>Reported by: {{ alert.userDetails?.name || alert.reporterEmail || 'Anonymous' }}</span>
+            </div>
+          </div>
+          
+          <!-- User Details Section -->
+          <div v-if="alert.userDetails" class="user-details-section">
+            <h4>User Contact Details:</h4>
+            <div class="user-details-grid">
+              <div class="detail-item">
+                <i class="fas fa-phone"></i>
+                <span>{{ alert.userDetails?.phone || 'Not provided' }}</span>
+              </div>
+              <div class="detail-item">
+                <i class="fas fa-envelope"></i>
+                <span>{{ alert.userDetails?.email || 'Not provided' }}</span>
+              </div>
+              <div class="detail-item">
+                <i class="fas fa-map-marked-alt"></i>
+                <span>{{ alert.userDetails?.location || 'Not provided' }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -331,7 +350,6 @@ export default {
 </script>
 
 <style scoped>
-/* Your existing styles remain the same */
 .emergency-alerts-container {
   max-width: 1000px;
   margin: 0 auto;
@@ -461,6 +479,38 @@ export default {
 
 .meta-item i {
   width: 16px;
+  text-align: center;
+}
+
+/* User Details Section */
+.user-details-section {
+  margin-top: 15px;
+  padding: 10px;
+  background-color: #f8f9fa;
+  border-radius: 5px;
+  border-left: 4px solid #dc3545;
+}
+
+.user-details-section h4 {
+  margin-bottom: 10px;
+  color: #dc3545;
+}
+
+.user-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.detail-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-item i {
+  color: #6c757d;
+  width: 20px;
   text-align: center;
 }
 
@@ -766,6 +816,10 @@ export default {
   }
   
   .alerts-list {
+    grid-template-columns: 1fr;
+  }
+  
+  .user-details-grid {
     grid-template-columns: 1fr;
   }
 }

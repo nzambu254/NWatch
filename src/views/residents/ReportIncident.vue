@@ -147,7 +147,7 @@
 <script>
 import { ref, onMounted } from 'vue'
 import { auth, db, storage } from '../../services/firebase'
-import { collection, doc, setDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore'
+import { collection, doc, setDoc, serverTimestamp, getDocs, query, where, getDoc } from 'firebase/firestore'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { useRouter } from 'vue-router'
 
@@ -299,7 +299,7 @@ export default {
       }
     }
 
-    // Emergency contact function
+    // Emergency contact function - updated to include user details
     const contactPolice = async () => {
       if (!auth.currentUser) {
         alert('Please log in to contact police')
@@ -313,9 +313,18 @@ export default {
         emergencyId.value = emergencyRef.id
         
         const currentUser = auth.currentUser
+        // Get additional user details from Firestore
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid))
+        const userData = userDoc.exists() ? userDoc.data() : {}
+        
         const emergencyData = {
           reportedBy: currentUser.uid,
           reporterEmail: currentUser.email,
+          reporterPhone: userData.phone || 'Not provided',
+          reporterLocation: userData.location || 'Not provided',
+          reporterName: userData.firstName && userData.lastName 
+                      ? `${userData.firstName} ${userData.lastName}` 
+                      : 'Anonymous',
           type: 'emergency_contact',
           status: 'active',
           createdAt: serverTimestamp(),
@@ -324,19 +333,28 @@ export default {
             lng: selectedCoordinates.value.lng,
             address: incident.value.location
           } : { address: incident.value.location || 'Location not specified' },
-          urgency: 'critical'
+          urgency: 'critical',
+          userDetails: {
+            phone: userData.phone || 'Not provided',
+            location: userData.location || 'Not provided',
+            email: currentUser.email,
+            name: userData.firstName && userData.lastName 
+                ? `${userData.firstName} ${userData.lastName}` 
+                : 'Anonymous'
+          }
         }
 
         await setDoc(emergencyRef, emergencyData)
 
-        // Send immediate notification to all police
+        // Send immediate notification to all police with user details
         await sendPoliceNotification({
           type: 'emergency_alert',
           title: '🚨 EMERGENCY ALERT',
-          message: `Emergency contact request from ${currentUser.email}`,
+          message: `Emergency contact request from ${emergencyData.reporterName}`,
           emergencyId: emergencyRef.id,
           priority: 'critical',
-          actionRequired: true
+          actionRequired: true,
+          userDetails: emergencyData.userDetails
         })
 
         showEmergencyModal.value = true

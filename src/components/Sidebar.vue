@@ -19,6 +19,7 @@
         </router-link>
         <router-link to="/admin/emergency-alerts" class="nav-link">
           <i class="fas fa-exclamation-triangle"></i> Emergency Alerts
+          <span v-if="hasUnviewedAlerts" class="notification-dot"></span>
         </router-link>
         <router-link to="/admin/neighborhood-map" class="nav-link">
           <i class="fas fa-map"></i> Neighborhood Map
@@ -41,6 +42,7 @@
         </router-link>
         <router-link to="/police/emergency-alerts" class="nav-link">
           <i class="fas fa-exclamation-triangle"></i> Emergency Alerts
+          <span v-if="hasUnviewedAlerts" class="notification-dot"></span>
         </router-link>
         <router-link to="/police/neighborhood-map" class="nav-link">
           <i class="fas fa-map"></i> Neighborhood Map
@@ -63,6 +65,7 @@
         </router-link>
         <router-link to="/broadcast-alerts" class="nav-link">
           <i class="fas fa-bell"></i> Broadcast Alerts
+          <span v-if="hasUnviewedAlerts" class="notification-dot"></span>
         </router-link>
       </template>
       
@@ -76,9 +79,9 @@
 </template>
 
 <script>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { auth } from '../services/firebase'
-import { doc, getDoc } from 'firebase/firestore'
+import { doc, getDoc, collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import { useRouter } from 'vue-router'
 
@@ -87,7 +90,10 @@ export default {
   setup() {
     const isAdmin = ref(false)
     const isPolice = ref(false)
+    const hasUnviewedAlerts = ref(false)
     const router = useRouter()
+    let alertsUnsubscribe = null
+    let userUnsubscribe = null
 
     const checkUserRole = async (user) => {
       try {
@@ -112,20 +118,93 @@ export default {
       }
     }
 
+    const checkForUnviewedAlerts = async (user) => {
+      try {
+        // Get user's viewed alerts
+        const userDocRef = doc(db, 'users', user.uid)
+        
+        // Listen to user document changes for viewed alerts
+        userUnsubscribe = onSnapshot(userDocRef, async (userDoc) => {
+          const viewedAlerts = userDoc.exists() ? (userDoc.data().viewedAlerts || []) : []
+          
+          // Query for active alerts
+          let alertsQuery = collection(db, 'emergencies')
+          
+          // If not admin, only check active alerts
+          if (!isAdmin.value) {
+            alertsQuery = query(
+              alertsQuery,
+              where('status', '==', 'active')
+            )
+          }
+          
+          // Listen to alerts collection changes
+          if (alertsUnsubscribe) {
+            alertsUnsubscribe()
+          }
+          
+          alertsUnsubscribe = onSnapshot(alertsQuery, (querySnapshot) => {
+            // Check if there are any unviewed alerts
+            const unviewedExists = querySnapshot.docs.some(doc => {
+              const alertId = doc.id
+              return !viewedAlerts.includes(alertId)
+            })
+            
+            hasUnviewedAlerts.value = unviewedExists
+          })
+        })
+      } catch (error) {
+        console.error('Error checking for unviewed alerts:', error)
+        hasUnviewedAlerts.value = false
+      }
+    }
+
     onMounted(() => {
       // Listen for auth state changes
       auth.onAuthStateChanged(async (user) => {
         if (user) {
           await checkUserRole(user)
+          await checkForUnviewedAlerts(user)
         } else {
           isAdmin.value = false
           isPolice.value = false
+          hasUnviewedAlerts.value = false
+          
+          // Clean up listeners
+          if (alertsUnsubscribe) {
+            alertsUnsubscribe()
+            alertsUnsubscribe = null
+          }
+          if (userUnsubscribe) {
+            userUnsubscribe()
+            userUnsubscribe = null
+          }
         }
       })
     })
 
+    onUnmounted(() => {
+      // Clean up listeners when component is unmounted
+      if (alertsUnsubscribe) {
+        alertsUnsubscribe()
+      }
+      if (userUnsubscribe) {
+        userUnsubscribe()
+      }
+    })
+
     const logout = async () => {
       try {
+        // Clean up listeners before logout
+        if (alertsUnsubscribe) {
+          alertsUnsubscribe()
+          alertsUnsubscribe = null
+        }
+        if (userUnsubscribe) {
+          userUnsubscribe()
+          userUnsubscribe = null
+        }
+        
         await auth.signOut()
         // Clear any session data
         sessionStorage.removeItem('userData')
@@ -137,7 +216,8 @@ export default {
 
     return { 
       isAdmin, 
-      isPolice, 
+      isPolice,
+      hasUnviewedAlerts,
       logout 
     }
   }
@@ -200,6 +280,7 @@ export default {
   text-decoration: none;
   transition: all 0.3s ease;
   font-size: 0.95rem;
+  position: relative;
 }
 
 .nav-link:hover {
@@ -218,6 +299,33 @@ export default {
   width: 20px;
   text-align: center;
   font-size: 1rem;
+}
+
+.notification-dot {
+  position: absolute;
+  top: 8px;
+  right: 15px;
+  width: 8px;
+  height: 8px;
+  background-color: #ff6b6b;
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+  box-shadow: 0 0 6px rgba(255, 107, 107, 0.8);
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .sidebar-footer {
@@ -260,6 +368,10 @@ export default {
   
   .sidebar.active {
     transform: translateX(0);
+  }
+  
+  .notification-dot {
+    right: 12px;
   }
 }
 </style>

@@ -2,52 +2,23 @@
   <div class="emergency-alerts-container">
     <div class="header">
       <h1>Emergency Alerts</h1>
-      <button v-if="isAdmin" @click="showNewAlertModal = true" class="new-alert-btn">
+      <button v-if="hasAdminAccess" @click="showNewAlertModal = true" class="new-alert-btn">
         <i class="fas fa-plus"></i> New Alert
       </button>
     </div>
 
-    <div class="alert-filters">
-      <div class="filter-group">
-        <label>Status:</label>
-        <select v-model="filterStatus">
-          <option value="all">All</option>
-          <option value="active">Active</option>
-          <option value="expired">Expired</option>
-        </select>
-      </div>
-      <div class="filter-group">
-        <label>Urgency:</label>
-        <select v-model="filterUrgency">
-          <option value="all">All</option>
-          <option value="critical">Critical</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-        </select>
-      </div>
-      <div class="filter-group">
-        <label>View Status:</label>
-        <select v-model="filterViewStatus">
-          <option value="all">All</option>
-          <option value="unviewed">Unviewed</option>
-          <option value="viewed">Viewed</option>
-        </select>
-      </div>
-    </div>
-
     <div class="alerts-list">
-      <div v-if="filteredAlerts.length === 0" class="no-alerts">
+      <div v-if="alerts.length === 0" class="no-alerts">
         <i class="fas fa-bell-slash"></i>
-        <p>No alerts found matching your criteria</p>
+        <p>No alerts found</p>
       </div>
 
-      <div v-for="alert in filteredAlerts" :key="alert.id" 
+      <div v-for="alert in alerts" :key="alert.id" 
            class="alert-card" 
-           :class="[`urgency-${alert.urgency}`, { 'unviewed': !isAlertViewed(alert.id) }]"
+           :class="`urgency-${alert.urgency}`"
            @click="viewAlert(alert)">
         <div class="alert-header">
           <div class="alert-title">
-            <span v-if="!isAlertViewed(alert.id)" class="unviewed-indicator"></span>
             {{ alert.type === 'emergency_contact' ? 'Emergency Contact' : alert.title || 'Emergency Alert' }}
           </div>
           <div class="alert-urgency">{{ alert.urgency }}</div>
@@ -67,16 +38,12 @@
               <i class="fas fa-user"></i>
               <span>Reported by: {{ alert.userDetails?.name || alert.reporterEmail || 'Anonymous' }}</span>
             </div>
-            <div class="meta-item">
-              <i class="fas fa-eye"></i>
-              <span>{{ isAlertViewed(alert.id) ? 'Viewed' : 'Not viewed' }}</span>
-            </div>
           </div>
         </div>
         <div class="alert-footer">
-          <div class="alert-status">{{ alert.status }}</div>
-          <div class="alert-actions" v-if="isAdmin">
-            <button v-if="alert.status === 'active'" @click.stop="deactivateAlert(alert.id)" class="action-btn deactivate">
+          <div class="alert-status" :class="`status-${alert.status}`">{{ alert.status }}</div>
+          <div class="alert-actions" v-if="hasAdminAccess">
+            <button v-if="alert.status === 'active'" @click.stop="updateAlertStatus(alert.id, 'inactive')" class="action-btn deactivate">
               <i class="fas fa-ban"></i> Deactivate
             </button>
             <button @click.stop="confirmDeleteAlert(alert.id)" class="action-btn delete">
@@ -96,6 +63,26 @@
             <i class="fas fa-times"></i>
           </button>
         </div>
+        
+        <!-- Status Management Buttons -->
+        <div v-if="hasAdminAccess && selectedAlert" class="status-management">
+          <div class="status-buttons">
+            <button 
+              v-for="status in availableStatuses" 
+              :key="status.value"
+              @click="updateAlertStatus(selectedAlert.id, status.value)" 
+              class="status-btn"
+              :class="[`status-btn-${status.value}`, { active: selectedAlert.status === status.value }]"
+              :disabled="updatingStatus">
+              <i :class="status.icon"></i>
+              {{ status.label }}
+            </button>
+          </div>
+          <div class="current-status">
+            Current Status: <span class="status-indicator" :class="`status-${selectedAlert.status}`">{{ selectedAlert.status.toUpperCase() }}</span>
+          </div>
+        </div>
+
         <div class="modal-body" v-if="selectedAlert">
           <div class="alert-detail-header">
             <div class="urgency-badge" :class="`urgency-${selectedAlert.urgency}`">
@@ -145,13 +132,26 @@
                 </div>
               </div>
             </div>
+
+            <!-- Status History Section -->
+            <div v-if="selectedAlert.statusHistory && selectedAlert.statusHistory.length > 0" class="detail-section status-history-section">
+              <h4><i class="fas fa-history"></i> Status History</h4>
+              <div class="status-history">
+                <div v-for="(history, index) in selectedAlert.statusHistory" :key="index" class="status-history-item">
+                  <div class="status-change">
+                    <span class="status-label" :class="`status-${history.status}`">{{ history.status.toUpperCase() }}</span>
+                    <span class="status-time">{{ formatDateTime(history.timestamp) }}</span>
+                  </div>
+                  <div v-if="history.updatedBy" class="status-updater">
+                    Updated by: {{ history.updatedBy }}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="modal-footer" v-if="isAdmin && selectedAlert">
+        <div class="modal-footer" v-if="hasAdminAccess && selectedAlert">
           <div class="modal-actions">
-            <button v-if="selectedAlert.status === 'active'" @click="deactivateAlert(selectedAlert.id)" class="action-btn deactivate">
-              <i class="fas fa-ban"></i> Deactivate Alert
-            </button>
             <button @click="confirmDeleteAlert(selectedAlert.id)" class="action-btn delete">
               <i class="fas fa-trash"></i> Delete Alert
             </button>
@@ -241,7 +241,7 @@
 </template>
 
 <script>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { auth, db } from '../../services/firebase'
 import { collection, query, where, getDocs, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, getDoc, arrayUnion } from 'firebase/firestore'
 import { useRouter } from 'vue-router'
@@ -251,17 +251,15 @@ export default {
   setup() {
     const router = useRouter()
     const isAdmin = ref(false)
+    const isPolice = ref(false)
     const alerts = ref([])
-    const viewedAlerts = ref([])
     const showNewAlertModal = ref(false)
     const showAlertDetailModal = ref(false)
     const showConfirmModal = ref(false)
     const isCreatingAlert = ref(false)
+    const updatingStatus = ref(false)
     const alertToDelete = ref(null)
     const selectedAlert = ref(null)
-    const filterStatus = ref('active')
-    const filterUrgency = ref('all')
-    const filterViewStatus = ref('all')
 
     const newAlert = ref({
       title: '',
@@ -273,13 +271,24 @@ export default {
       status: 'active'
     })
 
-    const checkAdminStatus = async () => {
+    const hasAdminAccess = computed(() => isAdmin.value || isPolice.value)
+
+    const availableStatuses = computed(() => [
+      { value: 'active', label: 'Active', icon: 'fas fa-play-circle' },
+      { value: 'inactive', label: 'Inactive', icon: 'fas fa-pause-circle' },
+      { value: 'in_progress', label: 'In Progress', icon: 'fas fa-spinner' },
+      { value: 'resolved', label: 'Resolved', icon: 'fas fa-check-circle' },
+      { value: 'expired', label: 'Expired', icon: 'fas fa-times-circle' }
+    ])
+
+    const checkUserRole = async () => {
       const user = auth.currentUser
       if (user) {
         const userDoc = await getDoc(doc(db, 'users', user.uid))
         if (userDoc.exists()) {
           const userData = userDoc.data()
           isAdmin.value = userData.role === 'admin' && userData.approved
+          isPolice.value = userData.role === 'police' && userData.approved
         }
       }
     }
@@ -288,8 +297,7 @@ export default {
       try {
         let alertsQuery = collection(db, 'emergencies')
         
-        // If not admin, only show active alerts
-        if (!isAdmin.value) {
+        if (!hasAdminAccess.value) {
           alertsQuery = query(
             alertsQuery,
             where('status', '==', 'active')
@@ -300,54 +308,17 @@ export default {
         alerts.value = querySnapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
-        }))
+        })).sort((a, b) => {
+          return b.createdAt?.toDate() - a.createdAt?.toDate()
+        })
       } catch (error) {
         console.error('Error fetching alerts:', error)
       }
     }
 
-    const fetchViewedAlerts = async () => {
-      try {
-        const user = auth.currentUser
-        if (user) {
-          const userDoc = await getDoc(doc(db, 'users', user.uid))
-          if (userDoc.exists()) {
-            const userData = userDoc.data()
-            viewedAlerts.value = userData.viewedAlerts || []
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching viewed alerts:', error)
-      }
-    }
-
-    const isAlertViewed = (alertId) => {
-      return viewedAlerts.value.includes(alertId)
-    }
-
-    const markAlertAsViewed = async (alertId) => {
-      try {
-        const user = auth.currentUser
-        if (user && !isAlertViewed(alertId)) {
-          // Update user's viewedAlerts array
-          await updateDoc(doc(db, 'users', user.uid), {
-            viewedAlerts: arrayUnion(alertId)
-          })
-          
-          // Update local state
-          viewedAlerts.value.push(alertId)
-        }
-      } catch (error) {
-        console.error('Error marking alert as viewed:', error)
-      }
-    }
-
-    const viewAlert = async (alert) => {
+    const viewAlert = (alert) => {
       selectedAlert.value = alert
       showAlertDetailModal.value = true
-      
-      // Mark as viewed
-      await markAlertAsViewed(alert.id)
     }
 
     const closeAlertDetail = () => {
@@ -361,11 +332,64 @@ export default {
       return date.toLocaleString()
     }
 
+    const updateAlertStatus = async (alertId, newStatus) => {
+      if (!hasAdminAccess.value || updatingStatus.value) return
+      
+      updatingStatus.value = true
+      try {
+        const user = auth.currentUser
+        const currentTimestamp = new Date() // Use current timestamp for the history object
+        
+        // First create the status history object with current timestamp
+        const statusHistory = {
+          status: newStatus,
+          timestamp: currentTimestamp,
+          updatedBy: user?.email || 'Unknown'
+        }
+
+        // Then update the document with the new status and add to history
+        await updateDoc(doc(db, 'emergencies', alertId), {
+          status: newStatus,
+          updatedAt: serverTimestamp(),
+          statusHistory: arrayUnion(statusHistory)
+        })
+        
+        // Update local data
+        const alertIndex = alerts.value.findIndex(alert => alert.id === alertId)
+        if (alertIndex !== -1) {
+          alerts.value[alertIndex].status = newStatus
+          alerts.value[alertIndex].updatedAt = { toDate: () => new Date() }
+        }
+        
+        if (selectedAlert.value?.id === alertId) {
+          selectedAlert.value.status = newStatus
+          selectedAlert.value.updatedAt = { toDate: () => new Date() }
+          if (!selectedAlert.value.statusHistory) {
+            selectedAlert.value.statusHistory = []
+          }
+          selectedAlert.value.statusHistory.push({
+            status: newStatus,
+            timestamp: { toDate: () => new Date() },
+            updatedBy: user?.email || 'Unknown'
+          })
+        }
+        
+        await fetchAlerts()
+      } catch (error) {
+        console.error('Error updating alert status:', error)
+      } finally {
+        updatingStatus.value = false
+      }
+    }
+
     const createNewAlert = async () => {
-      if (!isAdmin.value) return
+      if (!hasAdminAccess.value) return
       
       isCreatingAlert.value = true
       try {
+        const user = auth.currentUser
+        const currentTimestamp = new Date() // Use current timestamp for initial history
+
         await addDoc(collection(db, 'emergencies'), {
           title: newAlert.value.title,
           address: newAlert.value.address,
@@ -377,8 +401,13 @@ export default {
           type: newAlert.value.type,
           status: 'active',
           createdAt: serverTimestamp(),
-          reportedBy: auth.currentUser.uid,
-          reporterEmail: auth.currentUser.email
+          reportedBy: user?.uid,
+          reporterEmail: user?.email,
+          statusHistory: [{
+            status: 'active',
+            timestamp: currentTimestamp,
+            updatedBy: user?.email || 'Unknown'
+          }]
         })
         
         showNewAlertModal.value = false
@@ -391,35 +420,19 @@ export default {
       }
     }
 
-    const deactivateAlert = async (alertId) => {
-      try {
-        await updateDoc(doc(db, 'emergencies', alertId), {
-          status: 'expired',
-          updatedAt: serverTimestamp()
-        })
-        await fetchAlerts()
-        
-        // Close detail modal if this alert is being viewed
-        if (selectedAlert.value?.id === alertId) {
-          closeAlertDetail()
-        }
-      } catch (error) {
-        console.error('Error deactivating alert:', error)
-      }
-    }
-
     const confirmDeleteAlert = (alertId) => {
       alertToDelete.value = alertId
       showConfirmModal.value = true
     }
 
     const deleteAlert = async (alertId) => {
+      if (!hasAdminAccess.value) return
+      
       showConfirmModal.value = false
       try {
         await deleteDoc(doc(db, 'emergencies', alertId))
         await fetchAlerts()
         
-        // Close detail modal if this alert is being viewed
         if (selectedAlert.value?.id === alertId) {
           closeAlertDetail()
         }
@@ -440,56 +453,30 @@ export default {
       }
     }
 
-    const filteredAlerts = computed(() => {
-      return alerts.value.filter(alert => {
-        // Filter by status
-        const statusMatch = filterStatus.value === 'all' || 
-                          (filterStatus.value === 'active' && alert.status === 'active') ||
-                          (filterStatus.value === 'expired' && alert.status === 'expired')
-        
-        // Filter by urgency
-        const urgencyMatch = filterUrgency.value === 'all' || 
-                           alert.urgency === filterUrgency.value
-        
-        // Filter by view status
-        const viewStatusMatch = filterViewStatus.value === 'all' ||
-                              (filterViewStatus.value === 'viewed' && isAlertViewed(alert.id)) ||
-                              (filterViewStatus.value === 'unviewed' && !isAlertViewed(alert.id))
-        
-        return statusMatch && urgencyMatch && viewStatusMatch
-      }).sort((a, b) => {
-        // Sort by most recent first
-        return b.createdAt.toDate() - a.createdAt.toDate()
-      })
-    })
-
     onMounted(async () => {
-      await checkAdminStatus()
+      await checkUserRole()
       await fetchAlerts()
-      await fetchViewedAlerts()
     })
 
     return {
       isAdmin,
+      isPolice,
+      hasAdminAccess,
       alerts,
-      filteredAlerts,
-      viewedAlerts,
       newAlert,
       showNewAlertModal,
       showAlertDetailModal,
       showConfirmModal,
       isCreatingAlert,
+      updatingStatus,
       alertToDelete,
       selectedAlert,
-      filterStatus,
-      filterUrgency,
-      filterViewStatus,
-      isAlertViewed,
+      availableStatuses,
       viewAlert,
       closeAlertDetail,
       formatDateTime,
       createNewAlert,
-      deactivateAlert,
+      updateAlertStatus,
       confirmDeleteAlert,
       deleteAlert
     }
@@ -535,34 +522,6 @@ export default {
   margin-right: 8px;
 }
 
-.alert-filters {
-  display: flex;
-  gap: 20px;
-  margin-bottom: 20px;
-  padding: 15px;
-  background-color: #f8f9fa;
-  border-radius: 8px;
-  flex-wrap: wrap;
-}
-
-.filter-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.filter-group label {
-  font-weight: 500;
-  color: #2c3e50;
-}
-
-.filter-group select {
-  padding: 8px 12px;
-  border: 1px solid #ddd;
-  border-radius: 5px;
-  background-color: white;
-}
-
 .alerts-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -578,33 +537,12 @@ export default {
   flex-direction: column;
   cursor: pointer;
   transition: all 0.3s ease;
-  position: relative;
+  background-color: white;
 }
 
 .alert-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.15);
-}
-
-.alert-card.unviewed {
-  border: 2px solid #ff6b6b;
-  background-color: #fef8f8;
-}
-
-.unviewed-indicator {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  background-color: #ff6b6b;
-  border-radius: 50%;
-  margin-right: 8px;
-  animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-  0% { opacity: 1; }
-  50% { opacity: 0.5; }
-  100% { opacity: 1; }
 }
 
 .alert-header {
@@ -620,8 +558,6 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: flex;
-  align-items: center;
 }
 
 .alert-urgency {
@@ -674,7 +610,9 @@ export default {
 .alert-status {
   text-transform: capitalize;
   font-size: 0.85rem;
-  color: #666;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 12px;
 }
 
 .alert-actions {
@@ -725,6 +663,158 @@ export default {
 .no-alerts p {
   margin: 0;
   font-size: 1.1rem;
+}
+
+/* Status Management Styles */
+.status-management {
+  padding: 20px;
+  border-bottom: 1px solid #eee;
+  background-color: #f8f9fa;
+}
+
+.status-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.status-btn {
+  padding: 8px 16px;
+  border: 2px solid transparent;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.status-btn.active {
+  border-color: #2c3e50;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.status-btn-active {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.status-btn-inactive {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+.status-btn-in_progress {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.status-btn-resolved {
+  background-color: #d1ecf1;
+  color: #0c5460;
+}
+
+.status-btn-expired {
+  background-color: #e2e3e5;
+  color: #383d41;
+}
+
+.current-status {
+  font-size: 0.9rem;
+  color: #666;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-indicator {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+/* Status History Styles */
+.status-history-section {
+  border-left-color: #17a2b8;
+}
+
+.status-history-section h4 {
+  color: #17a2b8;
+}
+
+.status-history {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.status-history-item {
+  background-color: white;
+  padding: 12px;
+  border-radius: 6px;
+  border-left: 3px solid #17a2b8;
+}
+
+.status-change {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 5px;
+}
+
+.status-label {
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-time {
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.status-updater {
+  font-size: 0.8rem;
+  color: #888;
+  font-style: italic;
+}
+
+/* Status Colors */
+.status-active {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.status-inactive {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+.status-in_progress {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.status-resolved {
+  background-color: #d1ecf1;
+  color: #0c5460;
+}
+
+.status-expired {
+  background-color: #e2e3e5;
+  color: #383d41;
 }
 
 /* Urgency Styles */
@@ -795,7 +885,7 @@ export default {
 }
 
 .alert-detail-modal {
-  max-width: 800px;
+  max-width: 900px;
 }
 
 .modal-header {
@@ -857,64 +947,59 @@ export default {
   color: #856404;
 }
 
-.status-active {
-  background-color: #d4edda;
-  color: #155724;
-}
-
-.status-expired {
-  background-color: #f8d7da;
-  color: #721c24;
-}
-
 .alert-detail-content {
   display: flex;
-  flex-direction: column;
+    flex-direction: column;
   gap: 20px;
 }
 
 .detail-section {
-  background-color: #f8f9fa;
   padding: 15px;
   border-radius: 8px;
-  border-left: 4px solid #42b983;
+  background-color: #f8f9fa;
 }
 
 .detail-section h4 {
-  margin: 0 0 10px 0;
+  margin-top: 0;
+  margin-bottom: 15px;
   color: #2c3e50;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+}
+
+.detail-section h4 i {
+  color: #6c757d;
 }
 
 .detail-section p {
-  margin: 5px 0;
-  color: #555;
+  margin: 8px 0;
+}
+
+.detail-section p strong {
+  color: #343a40;
+  min-width: 120px;
+  display: inline-block;
 }
 
 .user-details-section {
-  border-left-color: #dc3545;
+  border-left: 3px solid #6f42c1;
 }
 
 .user-details-section h4 {
-  color: #dc3545;
+  color: #6f42c1;
 }
 
 .user-details-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 15px;
-  margin-top: 10px;
 }
 
 .detail-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px;
-  background-color: white;
-  border-radius: 5px;
 }
 
 .detail-item i {
@@ -926,15 +1011,16 @@ export default {
 .modal-footer {
   padding: 15px 20px;
   border-top: 1px solid #eee;
-  background-color: #f8f9fa;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .modal-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 10px;
 }
 
+/* New Alert Form Styles */
 .form-group {
   margin-bottom: 20px;
 }
@@ -943,17 +1029,26 @@ export default {
   display: block;
   margin-bottom: 8px;
   font-weight: 500;
-  color: #2c3e50;
+  color: #495057;
 }
 
 .form-group input,
 .form-group select,
 .form-group textarea {
   width: 100%;
-  padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 5px;
+  padding: 10px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
   font-size: 1rem;
+  transition: border-color 0.15s;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #80bdff;
+  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
 }
 
 .form-row {
@@ -974,33 +1069,34 @@ export default {
 
 .cancel-btn {
   padding: 10px 20px;
-  background-color: #f8f9fa;
-  border: 1px solid #ddd;
-  border-radius: 5px;
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
   cursor: pointer;
-  transition: all 0.3s;
+  transition: background-color 0.3s;
 }
 
 .cancel-btn:hover {
-  background-color: #e9ecef;
+  background-color: #5a6268;
 }
 
 .submit-btn {
   padding: 10px 20px;
-  background-color: #42b983;
+  background-color: #28a745;
   color: white;
   border: none;
-  border-radius: 5px;
+  border-radius: 4px;
   cursor: pointer;
-  transition: all 0.3s;
+  transition: background-color 0.3s;
 }
 
 .submit-btn:hover {
-  background-color: #369f6e;
+  background-color: #218838;
 }
 
 .submit-btn:disabled {
-  background-color: #95a5a6;
+  background-color: #6c757d;
   cursor: not-allowed;
 }
 
@@ -1010,25 +1106,24 @@ export default {
   border-radius: 10px;
   padding: 30px;
   text-align: center;
-  max-width: 500px;
+  max-width: 400px;
   width: 90%;
 }
 
 .confirm-icon {
   font-size: 3rem;
-  color: #ff6b6b;
+  color: #ffc107;
   margin-bottom: 20px;
 }
 
 .confirm-modal h3 {
-  margin: 0 0 15px 0;
-  color: #2c3e50;
+  margin-top: 0;
+  color: #343a40;
 }
 
 .confirm-modal p {
-  margin: 0 0 25px 0;
-  color: #666;
-  line-height: 1.5;
+  color: #6c757d;
+  margin-bottom: 25px;
 }
 
 .confirm-actions {
@@ -1039,23 +1134,28 @@ export default {
 
 .delete-btn {
   padding: 10px 20px;
-  background-color: #ff6b6b;
+  background-color: #dc3545;
   color: white;
   border: none;
-  border-radius: 5px;
+  border-radius: 4px;
   cursor: pointer;
-  transition: all 0.3s;
+  transition: background-color 0.3s;
 }
 
 .delete-btn:hover {
-  background-color: #ee5a52;
+  background-color: #c82333;
 }
 
 /* Responsive Styles */
 @media (max-width: 768px) {
-  .alert-filters {
+  .header {
     flex-direction: column;
+    align-items: flex-start;
     gap: 15px;
+  }
+  
+  .alerts-list {
+    grid-template-columns: 1fr;
   }
   
   .form-row {
@@ -1063,12 +1163,14 @@ export default {
     gap: 0;
   }
   
-  .alerts-list {
-    grid-template-columns: 1fr;
+  .alert-detail-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
   }
   
-  .modal-content {
-    width: 95%;
+  .status-buttons {
+    flex-direction: column;
   }
   
   .user-details-grid {
@@ -1077,162 +1179,21 @@ export default {
 }
 
 @media (max-width: 480px) {
-  .header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 15px;
+  .emergency-alerts-container {
+    padding: 15px;
   }
   
-  .alert-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
+  .modal-content {
+    width: 95%;
   }
   
-  .alert-footer {
+  .form-actions, .confirm-actions {
     flex-direction: column;
     gap: 10px;
-    align-items: flex-start;
   }
   
-  .alert-actions {
+  .form-actions button, .confirm-actions button {
     width: 100%;
-    justify-content: flex-end;
   }
-  
-  .modal-actions {
-    flex-direction: column;
-    gap: 10px;
-  }
-  
-  .confirm-actions {
-    flex-direction: column;
-    gap: 10px;
-  }
-}
-
-/* Animation for new alerts */
-@keyframes highlight {
-  0% { background-color: rgba(255, 255, 0, 0.3); }
-  100% { background-color: transparent; }
-}
-
-.new-alert {
-  animation: highlight 2s ease-out;
-}
-
-/* Status colors */
-.status-active {
-  color: #28a745;
-}
-
-.status-expired {
-  color: #dc3545;
-}
-
-/* Map container for future use */
-.map-container {
-  height: 300px;
-  width: 100%;
-  margin-top: 15px;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid #ddd;
-}
-
-/* Loading state */
-.loading {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 50px;
-}
-
-.loading-spinner {
-  border: 4px solid rgba(0, 0, 0, 0.1);
-  border-radius: 50%;
-  border-top: 4px solid #42b983;
-  width: 40px;
-  height: 40px;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-/* Empty state enhancements */
-.no-alerts {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 40px 20px;
-  background-color: #f8f9fa;
-  border-radius: 8px;
-  margin-top: 20px;
-}
-
-.no-alerts i {
-  font-size: 3rem;
-  color: #95a5a6;
-  margin-bottom: 20px;
-}
-
-.no-alerts p {
-  font-size: 1.2rem;
-  color: #666;
-  text-align: center;
-  max-width: 400px;
-}
-
-/* Tooltip styles */
-.tooltip {
-  position: relative;
-  display: inline-block;
-}
-
-.tooltip .tooltiptext {
-  visibility: hidden;
-  width: 120px;
-  background-color: #555;
-  color: #fff;
-  text-align: center;
-  border-radius: 6px;
-  padding: 5px;
-  position: absolute;
-  z-index: 1;
-  bottom: 125%;
-  left: 50%;
-  margin-left: -60px;
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-
-.tooltip:hover .tooltiptext {
-  visibility: visible;
-  opacity: 1;
-}
-
-/* Additional utility classes */
-.text-muted {
-  color: #6c757d !important;
-}
-
-.text-center {
-  text-align: center;
-}
-
-.mt-3 {
-  margin-top: 1rem;
-}
-
-.mb-3 {
-  margin-bottom: 1rem;
-}
-
-.p-3 {
-  padding: 1rem;
 }
 </style>

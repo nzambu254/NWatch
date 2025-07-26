@@ -1,5 +1,6 @@
 <template>
   <div class="auth-page">
+    <div class="background-overlay"></div>
     <div class="auth-container">
       <h1>Register for NWatch</h1>
       <form @submit.prevent="register">
@@ -161,22 +162,37 @@ export default {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background-color: #f5f5f5;
+  position: relative;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.background-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url('/assets/dolp.jpeg');
+  background-size: cover;
+  background-position: center;
+  opacity: 0.6;
+  z-index: -1;
 }
 
 .auth-container {
-  background: white;
+  background: #000000;
   padding: 30px;
   border-radius: 10px;
-  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
   width: 100%;
   max-width: 450px;
+  margin: 20px;
 }
 
 .auth-container h1 {
   text-align: center;
   margin-bottom: 25px;
-  color: #2c3e50;
+  color: #ffffff;
 }
 
 .form-group {
@@ -187,31 +203,43 @@ export default {
   display: block;
   margin-bottom: 5px;
   font-weight: 600;
-  color: #2c3e50;
+  color: #ffffff;
 }
 
 .form-group input,
 .form-group select {
   width: 100%;
   padding: 10px;
-  border: 1px solid #ddd;
+  border: 1px solid #333333;
   border-radius: 5px;
   font-size: 16px;
   transition: border-color 0.3s;
+  background-color: #1a1a1a;
+  color: #ffffff;
+}
+
+.form-group input::placeholder {
+  color: #999999;
 }
 
 .form-group input:focus,
 .form-group select:focus {
   border-color: #42b983;
   outline: none;
+  background-color: #1a1a1a;
 }
 
 .form-select {
   appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
   background-repeat: no-repeat;
   background-position: right 10px center;
   background-size: 1em;
+}
+
+.form-select option {
+  background-color: #1a1a1a;
+  color: #ffffff;
 }
 
 .btn {
@@ -239,11 +267,11 @@ export default {
 .auth-footer {
   text-align: center;
   margin-top: 20px;
-  color: #7f8c8d;
+  color: #cccccc;
 }
 
 .auth-footer a {
-  color: #42b983;
+  color: #ff8c00;
   text-decoration: none;
   font-weight: 600;
 }

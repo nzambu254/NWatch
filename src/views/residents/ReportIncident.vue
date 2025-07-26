@@ -150,6 +150,7 @@ import { auth, db, storage } from '../../services/firebase'
 import { collection, doc, setDoc, serverTimestamp, getDocs, query, where, getDoc } from 'firebase/firestore'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { useRouter } from 'vue-router'
+import { getFunctions, httpsCallable } from 'firebase/functions' // Add this import
 
 export default {
   name: 'ReportIncident',
@@ -164,6 +165,9 @@ export default {
     const showEmergencyModal = ref(false)
     const reportId = ref('')
     const emergencyId = ref('')
+    
+    // Initialize Firebase Functions
+    const functions = getFunctions() // Add this line
     
     const urgencyLevels = [
       { value: 'low', label: 'Low' },
@@ -254,52 +258,7 @@ export default {
       }
     }
 
-    // Send push notification to police
-    const sendPoliceNotification = async (notificationData) => {
-      try {
-        const policeOfficers = await getPoliceOfficers()
-        
-        // Create notifications for each police officer
-        const notifications = policeOfficers.map(officer => ({
-          recipientId: officer.id,
-          recipientName: `${officer.firstName} ${officer.lastName}`,
-          ...notificationData,
-          createdAt: serverTimestamp(),
-          read: false
-        }))
-
-        // Save notifications to Firestore
-        const notificationsRef = collection(db, 'notifications')
-        const promises = notifications.map(notification => 
-          setDoc(doc(notificationsRef), notification)
-        )
-        
-        await Promise.all(promises)
-        
-        console.log(`Notifications sent to ${policeOfficers.length} police officers`)
-      } catch (error) {
-        console.error('Error sending police notifications:', error)
-      }
-    }
-
-    // Send success notification to user
-    const sendUserNotification = async (userId, notificationData) => {
-      if (userId) {
-        try {
-          const userNotificationRef = doc(collection(db, 'notifications'))
-          await setDoc(userNotificationRef, {
-            recipientId: userId,
-            ...notificationData,
-            createdAt: serverTimestamp(),
-            read: false
-          })
-        } catch (error) {
-          console.error('Error sending user notification:', error)
-        }
-      }
-    }
-
-    // Emergency contact function - updated to include user details
+    // Fixed emergency contact function using Firebase Cloud Functions
     const contactPolice = async () => {
       if (!auth.currentUser) {
         alert('Please log in to contact police')
@@ -309,55 +268,114 @@ export default {
       isContactingPolice.value = true
 
       try {
-        const emergencyRef = doc(collection(db, 'emergencies'))
-        emergencyId.value = emergencyRef.id
+        // Get all police officers with valid phone numbers
+        const policeOfficers = await getPoliceOfficers()
+        const officersWithPhones = policeOfficers.filter(officer => 
+          officer.phone && officer.phone.startsWith('+254') && officer.phone.length >= 12
+        )
         
+        if (officersWithPhones.length === 0) {
+          alert('No police officers with valid Kenyan phone numbers found in the system')
+          return
+        }
+
+        // Get current user details
         const currentUser = auth.currentUser
-        // Get additional user details from Firestore
         const userDoc = await getDoc(doc(db, 'users', currentUser.uid))
         const userData = userDoc.exists() ? userDoc.data() : {}
         
+        const userName = userData.firstName && userData.lastName 
+                      ? `${userData.firstName} ${userData.lastName}` 
+                      : 'Anonymous User'
+        
+        const userPhone = userData.phone || 'Not provided'
+        const userLocation = incident.value.location || userData.location || 'Location not specified'
+
+        // Create emergency record in Firestore first
+        const emergencyRef = doc(collection(db, 'emergencies'))
+        emergencyId.value = emergencyRef.id
+        
         const emergencyData = {
           reportedBy: currentUser.uid,
-          reporterEmail: currentUser.email,
-          reporterPhone: userData.phone || 'Not provided',
-          reporterLocation: userData.location || 'Not provided',
-          reporterName: userData.firstName && userData.lastName 
-                      ? `${userData.firstName} ${userData.lastName}` 
-                      : 'Anonymous',
+          reporterName: userName,
+          reporterPhone: userPhone,
+          reporterLocation: userLocation,
           type: 'emergency_contact',
           status: 'active',
           createdAt: serverTimestamp(),
           location: selectedCoordinates.value ? {
             lat: selectedCoordinates.value.lat,
             lng: selectedCoordinates.value.lng,
-            address: incident.value.location
-          } : { address: incident.value.location || 'Location not specified' },
+            address: userLocation
+          } : { address: userLocation },
           urgency: 'critical',
-          userDetails: {
-            phone: userData.phone || 'Not provided',
-            location: userData.location || 'Not provided',
-            email: currentUser.email,
-            name: userData.firstName && userData.lastName 
-                ? `${userData.firstName} ${userData.lastName}` 
-                : 'Anonymous'
-          }
+          notifiedOfficers: officersWithPhones.map(officer => ({
+            id: officer.id,
+            name: `${officer.firstName} ${officer.lastName}`,
+            phone: officer.phone
+          })),
+          smsStatus: 'pending'
         }
 
         await setDoc(emergencyRef, emergencyData)
 
-        // Send immediate notification to all police with user details
-        await sendPoliceNotification({
-          type: 'emergency_alert',
-          title: '🚨 EMERGENCY ALERT',
-          message: `Emergency contact request from ${emergencyData.reporterName}`,
-          emergencyId: emergencyRef.id,
-          priority: 'critical',
-          actionRequired: true,
-          userDetails: emergencyData.userDetails
-        })
+        // Try to call Firebase Cloud Function for SMS
+        try {
+          // You'll need to create this Firebase Cloud Function
+          const sendEmergencySMS = httpsCallable(functions, 'sendEmergencySMS')
+          
+          const smsData = {
+            emergencyId: emergencyId.value,
+            reporterName: userName,
+            reporterPhone: userPhone,
+            location: userLocation,
+            officers: officersWithPhones
+          }
+
+          const result = await sendEmergencySMS(smsData)
+          console.log('SMS sent via Cloud Function:', result.data)
+          
+          // Update the emergency record with SMS success
+          await setDoc(emergencyRef, {
+            ...emergencyData,
+            smsStatus: 'sent',
+            smsResponse: result.data
+          })
+          
+        } catch (functionError) {
+          console.warn('Cloud Function SMS failed, falling back to in-app notification:', functionError)
+          
+          // Fallback: Create in-app notifications for police officers
+          const notificationPromises = officersWithPhones.map(async (officer) => {
+            const notificationRef = doc(collection(db, 'notifications'))
+            return setDoc(notificationRef, {
+              userId: officer.id,
+              type: 'emergency_alert',
+              title: '🚨 EMERGENCY ALERT',
+              message: `Emergency reported by ${userName} at ${userLocation}. Contact: ${userPhone}`,
+              data: {
+                emergencyId: emergencyId.value,
+                reporterName: userName,
+                reporterPhone: userPhone,
+                location: userLocation
+              },
+              read: false,
+              createdAt: serverTimestamp()
+            })
+          })
+
+          await Promise.all(notificationPromises)
+          
+          // Update emergency record
+          await setDoc(emergencyRef, {
+            ...emergencyData,
+            smsStatus: 'fallback_notification',
+            notificationsSent: officersWithPhones.length
+          })
+        }
 
         showEmergencyModal.value = true
+        
       } catch (error) {
         console.error('Error contacting police:', error)
         alert('Failed to contact police. Please try again or call emergency services directly.')
@@ -484,28 +502,31 @@ export default {
 
         await setDoc(incidentRef, incidentData)
 
-        // Send notification to police if urgent or emergency
-        if (['high', 'critical', 'emergency'].includes(incident.value.urgency) || incident.value.type === 'emergency') {
-          await sendPoliceNotification({
-            type: 'incident_report',
-            title: `${incident.value.urgency.toUpperCase()} Incident Reported`,
-            message: `${incident.value.type}: ${incident.value.title}`,
-            incidentId: incidentRef.id,
-            location: incident.value.location,
-            urgency: incident.value.urgency,
-            actionRequired: incident.value.urgency === 'critical' || incident.value.type === 'emergency'
-          })
-        }
-
-        // Send success notification to user
-        if (!incident.value.anonymous && auth.currentUser) {
-          await sendUserNotification(auth.currentUser.uid, {
-            type: 'incident_confirmation',
-            title: 'Incident Report Submitted',
-            message: `Your ${incident.value.type} report has been successfully submitted and is being reviewed.`,
-            incidentId: incidentRef.id,
-            referenceId: incidentRef.id
-          })
+        // Create notifications for police officers about the new incident
+        if (incident.value.urgency === 'high' || incident.value.urgency === 'critical') {
+          try {
+            const policeOfficers = await getPoliceOfficers()
+            const notificationPromises = policeOfficers.map(async (officer) => {
+              const notificationRef = doc(collection(db, 'notifications'))
+              return setDoc(notificationRef, {
+                userId: officer.id,
+                type: 'new_incident',
+                title: `${incident.value.urgency.toUpperCase()} Priority Incident`,
+                message: `${incident.value.title} reported at ${incident.value.location}`,
+                data: {
+                  incidentId: reportId.value,
+                  incidentType: incident.value.type,
+                  urgency: incident.value.urgency,
+                  location: incident.value.location
+                },
+                read: false,
+                createdAt: serverTimestamp()
+              })
+            })
+            await Promise.all(notificationPromises)
+          } catch (notificationError) {
+            console.warn('Failed to send notifications to police:', notificationError)
+          }
         }
 
         showSuccessModal.value = true

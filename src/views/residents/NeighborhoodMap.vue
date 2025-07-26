@@ -344,7 +344,6 @@ export default {
     let locationPickerMarker = null
 
     // Incident types configuration
-    // These keys should match the 'type' field values in your Firebase incidents
     const incidentTypes = ref([
       { key: 'theft', label: 'Theft', icon: '🔓' },
       { key: 'vandalism', label: 'Vandalism', icon: '🎨' },
@@ -354,7 +353,7 @@ export default {
       { key: 'other', label: 'Other', icon: '❓' }
     ])
 
-    // Sample Points of Interest (in real app, these would come from a database)
+    // Sample Points of Interest
     const defaultPOIs = ref([
       {
         id: 'poi-1',
@@ -415,56 +414,53 @@ export default {
       }
     ])
 
-    onMounted(async () => {
-      pointsOfInterest.value = defaultPOIs.value // You might load these from Firebase too
-      await loadGoogleMaps()
-      initializeMap()
-      loadIncidents()
-      getUserLocation()
+    // COMPUTED PROPERTIES - PROPERLY DECLARED EARLY
+    const totalIncidents = computed(() => {
+      return incidents.value ? incidents.value.length : 0
     })
-
-    onUnmounted(() => {
-      if (unsubscribe) {
-        unsubscribe()
-      }
-    })
-
-    // Computed properties - DECLARE THESE FIRST
-    const totalIncidents = computed(() => incidents.value.length)
 
     const recentIncidents = computed(() => {
+      if (!incidents.value || incidents.value.length === 0) return 0
+      
       const weekAgo = new Date()
       weekAgo.setDate(weekAgo.getDate() - 7)
+      
       return incidents.value.filter(incident => {
+        if (!incident.createdAt) return false
         const incidentDate = incident.createdAt.toDate ? incident.createdAt.toDate() : new Date(incident.createdAt)
         return incidentDate >= weekAgo
       }).length
     })
 
-    const highUrgencyIncidents = computed(() =>
-      incidents.value.filter(incident => incident.urgency === 'high').length
-    )
+    const highUrgencyIncidents = computed(() => {
+      if (!incidents.value || incidents.value.length === 0) return 0
+      return incidents.value.filter(incident => incident.urgency === 'high').length
+    })
 
     const filteredIncidents = computed(() => {
+      if (!incidents.value || incidents.value.length === 0) return []
       return incidents.value.filter(incident =>
         selectedIncidentTypes.value.includes(incident.type)
       )
     })
 
-    // Watch for changes - NOW THESE CAN BE DECLARED AFTER THEIR DEPENDENCIES
+    // WATCHERS - NOW PROPERLY DECLARED AFTER COMPUTED PROPERTIES
     watch(filteredIncidents, () => {
       updateIncidentMarkers()
     })
+    
     watch(showIncidents, () => {
       updateIncidentMarkers()
     })
+    
     watch(showPOIs, () => {
       updatePOIMarkers()
     })
+    
     watch(showHeatmap, () => {
       toggleHeatmap()
     })
-    // This watch needs to be placed after `showLocationPicker` is defined, which it is.
+    
     watch(showLocationPicker, (newValue) => {
       if (newValue) {
         setTimeout(() => {
@@ -477,14 +473,27 @@ export default {
         }
         selectedCoordinates.value = null;
       }
-    });
+    })
+
+    // LIFECYCLE HOOKS
+    onMounted(async () => {
+      pointsOfInterest.value = defaultPOIs.value
+      await loadGoogleMaps()
+      initializeMap()
+      loadIncidents()
+      getUserLocation()
+    })
+
+    onUnmounted(() => {
+      if (unsubscribe) {
+        unsubscribe()
+      }
+    })
 
     // Initialize map
     const initializeMap = () => {
-      // Default center (Nairobi, Kenya - adjust as needed)
       const defaultCenter = { lat: -1.2921, lng: 36.8219 }
 
-      // Create map
       map.value = new google.maps.Map(document.getElementById('map'), {
         zoom: 15,
         center: defaultCenter,
@@ -506,7 +515,6 @@ export default {
 
       mapLoading.value = false
 
-      // Initialize heatmap
       heatmapLayer.value = new google.maps.visualization.HeatmapLayer({
         data: [],
         map: null
@@ -518,19 +526,24 @@ export default {
       const incidentsQuery = query(
         collection(db, 'incidents'),
         orderBy('createdAt', 'desc'),
-        limit(100) // Limit to recent incidents for performance
+        limit(100)
       )
 
       unsubscribe = onSnapshot(incidentsQuery, (snapshot) => {
         incidents.value = snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
-        })).filter(incident => incident.lat && incident.lng) // Only incidents with coordinates
+        })).filter(incident => incident.lat && incident.lng)
 
+        // Force reactivity update
+        console.log('Loaded incidents:', incidents.value.length)
+        
         updateIncidentMarkers()
         updateHeatmap()
       }, (error) => {
         console.error('Error loading incidents:', error)
+        // Set empty array on error to ensure computed properties work
+        incidents.value = []
       })
     }
 
@@ -544,9 +557,8 @@ export default {
               lng: position.coords.longitude
             }
 
-            // Create user location marker
             if (userMarker.value) {
-              userMarker.value.setMap(null); // Clear existing marker
+              userMarker.value.setMap(null);
             }
             userMarker.value = new google.maps.Marker({
               position: userLocation.value,
@@ -564,12 +576,10 @@ export default {
               }
             })
 
-            // Center map on user location
             map.value.setCenter(userLocation.value)
           },
           (error) => {
             console.error('Error getting user location:', error)
-            // Handle error, e.g., display a message to the user
           }
         )
       } else {
@@ -579,13 +589,12 @@ export default {
 
     // Update incident markers on map
     const updateIncidentMarkers = () => {
-      // Clear existing markers
       incidentMarkers.value.forEach(marker => marker.setMap(null))
       incidentMarkers.value = []
 
-      if (!showIncidents.value) return
+      if (!showIncidents.value || !map.value) return
 
-      filteredIncidents.value.forEach(incident => { // This now correctly accesses filteredIncidents
+      filteredIncidents.value.forEach(incident => {
         if (!incident.lat || !incident.lng) return
 
         const marker = new google.maps.Marker({
@@ -599,7 +608,6 @@ export default {
           }
         })
 
-        // Add click listener
         marker.addListener('click', () => {
           selectedIncident.value = incident
         })
@@ -610,11 +618,10 @@ export default {
 
     // Update POI markers on map
     const updatePOIMarkers = () => {
-      // Clear existing markers
       poiMarkers.value.forEach(marker => marker.setMap(null))
       poiMarkers.value = []
 
-      if (!showPOIs.value) return
+      if (!showPOIs.value || !map.value) return
 
       pointsOfInterest.value.forEach(poi => {
         const marker = new google.maps.Marker({
@@ -633,7 +640,6 @@ export default {
           }
         })
 
-        // Add click listener
         marker.addListener('click', () => {
           selectedPOI.value = poi
         })
@@ -694,10 +700,10 @@ export default {
       } else {
         selectedIncidentTypes.value.push(typeKey)
       }
-      // Markers will update automatically due to the watcher on filteredIncidents
     }
 
     const getIncidentCount = (typeKey) => {
+      if (!incidents.value || incidents.value.length === 0) return 0
       return incidents.value.filter(incident => incident.type === typeKey).length
     }
 
@@ -748,7 +754,7 @@ export default {
         `${location.lat},${location.lng}` :
         encodeURIComponent(location.address || location.location || '')
 
-      const url = `http://maps.google.com/maps?q=${destination}`; // Corrected Google Maps URL for directions
+      const url = `https://maps.google.com/maps?q=${destination}`
       window.open(url, '_blank')
     }
 

@@ -263,7 +263,7 @@ export default {
 
     const newAlert = ref({
       title: '',
-      address: 'Location not specified',
+      location: 'Location not specified',
       latitude: null,
       longitude: null,
       urgency: 'critical',

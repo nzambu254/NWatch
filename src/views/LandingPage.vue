@@ -1,5 +1,6 @@
 <template>
   <div class="landing-page">
+    <div class="background-overlay"></div>
     <header class="hero">
       <div class="container">
         <h1>NWatch Community Safety System</h1>
@@ -41,7 +42,7 @@
 
     <footer class="footer">
       <div class="container">
-        <p>&copy; 2023 NWatch Community Safety System. All rights reserved.</p>
+        <p>&copy; 2025 NWatch Community Safety System. All rights reserved.</p>
       </div>
     </footer>
   </div>
@@ -57,6 +58,22 @@ export default {
 .landing-page {
   font-family: 'Arial', sans-serif;
   color: #333;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+}
+
+.background-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url('/assets/dolp.jpeg');
+  background-size: cover;
+  background-position: center;
+  opacity: 0.6;
+  z-index: -1;
 }
 
 .container {
@@ -66,21 +83,28 @@ export default {
 }
 
 .hero {
-  background: linear-gradient(135deg, #2c3e50, #3498db);
   color: white;
   padding: 100px 0;
   text-align: center;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .hero h1 {
   font-size: 3rem;
   margin-bottom: 20px;
+  text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.5);
+  color: black;
 }
 
 .subtitle {
   font-size: 1.5rem;
   margin-bottom: 40px;
   opacity: 0.9;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+  color: black;
 }
 
 .cta-buttons {
@@ -98,8 +122,8 @@ export default {
 }
 
 .btn-primary {
-  background-color: #42b983;
-  color: white;
+  background-color: #8811b8;
+  color: black;
 }
 
 .btn-primary:hover {
@@ -108,8 +132,8 @@ export default {
 
 .btn-secondary {
   background-color: transparent;
-  color: white;
-  border: 2px solid white;
+  color: black;
+  border: 2px solid rgb(5, 5, 5);
 }
 
 .btn-secondary:hover {
@@ -118,7 +142,7 @@ export default {
 
 .features {
   padding: 80px 0;
-  background-color: #f9f9f9;
+  background-color: rgba(249, 249, 249, 0.85);
 }
 
 .features h2 {
@@ -163,7 +187,7 @@ export default {
 }
 
 .footer {
-  background-color: #2c3e50;
+  background-color: rgba(44, 62, 80, 0.9);
   color: white;
   padding: 30px 0;
   text-align: center;

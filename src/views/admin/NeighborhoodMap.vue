@@ -32,7 +32,19 @@
       <div class="debug-info">
         <span>Total Incidents: {{ incidents.length }}</span>
         <span>Filtered: {{ filteredIncidents.length }}</span>
+        <span>Valid Coordinates: {{ validCoordinateCount }}</span>
+        <span>Map Ready: {{ mapReady ? 'Yes' : 'No' }}</span>
       </div>
+    </div>
+
+    <!-- Loading indicator -->
+    <div v-if="isLoading" class="loading-indicator">
+      Loading incidents...
+    </div>
+
+    <!-- Error display -->
+    <div v-if="error" class="error-message">
+      {{ error }}
     </div>
 
     <!-- Map Container -->
@@ -44,7 +56,7 @@
     <div v-if="selectedIncident" class="modal-overlay" @click="closeIncidentModal">
       <div class="incident-modal" @click.stop>
         <div class="modal-header">
-          <h3>{{ selectedIncident.title }}</h3>
+          <h3>{{ selectedIncident.title || 'Incident #' + selectedIncident.id }}</h3>
           <button @click="closeIncidentModal" class="close-btn">×</button>
         </div>
         
@@ -52,11 +64,11 @@
           <div class="incident-details">
             <div class="detail-item">
               <label>Type:</label>
-              <span>{{ selectedIncident.type }}</span>
+              <span>{{ selectedIncident.type || 'Not specified' }}</span>
             </div>
             <div class="detail-item">
               <label>Status:</label>
-              <span class="status-badge" :class="selectedIncident.status">{{ selectedIncident.status }}</span>
+              <span class="status-badge" :class="selectedIncident.status">{{ selectedIncident.status || 'open' }}</span>
             </div>
             <div class="detail-item">
               <label>Location:</label>
@@ -72,9 +84,16 @@
             <h4>Description:</h4>
             <p>{{ selectedIncident.description || 'No description provided' }}</p>
           </div>
+
+          <!-- Debug section for incident data -->
+          <div class="incident-debug" v-if="showDebug">
+            <h4>Debug Info:</h4>
+            <pre>{{ JSON.stringify(selectedIncident, null, 2) }}</pre>
+          </div>
         </div>
 
         <div class="modal-actions">
+          <button @click="toggleDebug" class="action-button debug">Toggle Debug</button>
           <button @click="updateStatus('pending')" class="action-button pending" v-if="selectedIncident.status === 'open'">
             Mark as Pending
           </button>
@@ -91,7 +110,7 @@
 </template>
 
 <script>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { db } from '../../services/firebase'
 import { 
   collection, 
@@ -101,7 +120,7 @@ import {
   where,
   doc,
   updateDoc,
-  limit
+  getDocs
 } from 'firebase/firestore'
 
 export default {
@@ -114,6 +133,8 @@ export default {
     const incidentMarkers = ref([])
     const isLoading = ref(true)
     const error = ref(null)
+    const mapReady = ref(false)
+    const showDebug = ref(false)
     
     // Filters
     const statusFilter = ref('all')
@@ -130,14 +151,28 @@ export default {
       })
     })
 
+    // Count incidents with valid coordinates
+    const validCoordinateCount = computed(() => {
+      return filteredIncidents.value.filter(incident => getCoordinates(incident) !== null).length
+    })
+
+    // Watch for changes in filtered incidents and update map
+    watch(filteredIncidents, () => {
+      if (mapReady.value) {
+        updateMapMarkers()
+      }
+    }, { deep: true })
+
     onMounted(async () => {
       try {
+        console.log('Starting initialization...')
         await loadGoogleMaps()
         initializeMap()
-        loadIncidents()
+        await loadIncidents()
       } catch (err) {
-        error.value = 'Failed to initialize map: ' + err.message
+        error.value = 'Failed to initialize: ' + err.message
         console.error('Initialization error:', err)
+        isLoading.value = false
       }
     })
 
@@ -151,25 +186,38 @@ export default {
     const loadGoogleMaps = () => {
       return new Promise((resolve, reject) => {
         if (window.google && window.google.maps) {
-          resolve();
-          return;
+          console.log('Google Maps already loaded')
+          resolve()
+          return
         }
 
-        const script = document.createElement('script');
-        script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyBux3LWgjt4Y2pz0vOoF0TBz4K49BWfzlY&libraries=places`;
-        script.async = true;
-        script.defer = true;
-        script.onload = resolve;
-        script.onerror = reject;
-        document.head.appendChild(script);
-      });
-    };
+        console.log('Loading Google Maps API...')
+        const script = document.createElement('script')
+        script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyBux3LWgjt4Y2pz0vOoF0TBz4K49BWfzlY&libraries=places`
+        script.async = true
+        script.defer = true
+        script.onload = () => {
+          console.log('Google Maps API loaded successfully')
+          resolve()
+        }
+        script.onerror = (err) => {
+          console.error('Failed to load Google Maps API:', err)
+          reject(new Error('Failed to load Google Maps API'))
+        }
+        document.head.appendChild(script)
+      })
+    }
 
     // Initialize map
     const initializeMap = () => {
-      const defaultCenter = { lat: -1.2921, lng: 36.8219 } // Default to Nairobi coordinates
+      const defaultCenter = { lat: -1.2921, lng: 36.8219 } // Nairobi coordinates
       
-      map.value = new google.maps.Map(document.getElementById('admin-map'), {
+      const mapElement = document.getElementById('admin-map')
+      if (!mapElement) {
+        throw new Error('Map element not found')
+      }
+
+      map.value = new google.maps.Map(mapElement, {
         zoom: 12,
         center: defaultCenter,
         mapTypeId: google.maps.MapTypeId.ROADMAP,
@@ -179,37 +227,91 @@ export default {
         fullscreenControl: true
       })
 
+      mapReady.value = true
       console.log('Map initialized successfully')
     }
 
     // Load incidents from Firestore
-    const loadIncidents = () => {
+    const loadIncidents = async () => {
       try {
-        const incidentsQuery = query(
+        console.log('Setting up Firestore listener...')
+        
+        // First try to get all incidents without limit to see total count
+        const allIncidentsQuery = query(
           collection(db, 'incidents'),
-          orderBy('createdAt', 'desc'),
-          limit(100)
+          orderBy('createdAt', 'desc')
         )
 
-        unsubscribe = onSnapshot(incidentsQuery, (snapshot) => {
+        // Test connection first with getDocs
+        try {
+          const snapshot = await getDocs(query(collection(db, 'incidents')))
+          console.log('Direct query test - found documents:', snapshot.docs.length)
+          
+          if (snapshot.docs.length === 0) {
+            console.warn('No documents found in incidents collection')
+            error.value = 'No incidents found in database'
+            isLoading.value = false
+            return
+          }
+          
+          // Log first document structure for debugging
+          if (snapshot.docs.length > 0) {
+            const firstDoc = snapshot.docs[0]
+            console.log('First document structure:', { id: firstDoc.id, data: firstDoc.data() })
+          }
+        } catch (testError) {
+          console.error('Test query failed:', testError)
+          error.value = 'Failed to connect to database: ' + testError.message
+          isLoading.value = false
+          return
+        }
+
+        // Set up real-time listener
+        unsubscribe = onSnapshot(allIncidentsQuery, (snapshot) => {
           console.log('Firestore snapshot received, documents:', snapshot.docs.length)
           
-          const incidentData = snapshot.docs.map(doc => {
+          if (snapshot.empty) {
+            console.warn('Snapshot is empty')
+            incidents.value = []
+            isLoading.value = false
+            return
+          }
+          
+          const incidentData = []
+          
+          snapshot.docs.forEach((doc, index) => {
             const data = doc.data()
-            console.log('Incident data:', { id: doc.id, ...data })
-            return {
+            const incident = {
               id: doc.id,
-              ...data
+              ...data,
+              // Ensure status has a default
+              status: data.status || 'open'
             }
+            
+            console.log(`Processing incident ${index + 1}/${snapshot.docs.length}:`, {
+              id: incident.id,
+              type: incident.type,
+              status: incident.status,
+              hasLocation: !!getCoordinates(incident),
+              coordinates: getCoordinates(incident),
+              rawLocation: data.location
+            })
+            
+            incidentData.push(incident)
           })
           
           incidents.value = incidentData
           isLoading.value = false
           
-          console.log('Total incidents loaded:', incidents.value.length)
-          updateMapMarkers()
+          console.log(`Successfully loaded ${incidents.value.length} incidents`)
+          console.log('Incidents with valid coordinates:', incidents.value.filter(i => getCoordinates(i)).length)
+          
+          // Update map markers if map is ready
+          if (mapReady.value) {
+            updateMapMarkers()
+          }
         }, (err) => {
-          console.error('Error loading incidents:', err)
+          console.error('Firestore listener error:', err)
           error.value = 'Failed to load incidents: ' + err.message
           isLoading.value = false
         })
@@ -220,95 +322,159 @@ export default {
       }
     }
 
-    // Extract coordinates from various possible location formats
+    // Enhanced coordinate extraction with better error handling
     const getCoordinates = (incident) => {
-      // Try different possible location formats
-      if (incident.location) {
-        // Format 1: { location: { latitude: x, longitude: y } }
-        if (incident.location.latitude && incident.location.longitude) {
-          return {
-            lat: incident.location.latitude,
-            lng: incident.location.longitude
+      if (!incident) {
+        console.log('No incident provided to getCoordinates')
+        return null
+      }
+
+      try {
+        // Format 1: location object with latitude/longitude
+        if (incident.location) {
+          // Handle Firestore GeoPoint
+          if (incident.location.latitude !== undefined && incident.location.longitude !== undefined) {
+            const lat = parseFloat(incident.location.latitude)
+            const lng = parseFloat(incident.location.longitude)
+            if (!isNaN(lat) && !isNaN(lng) && isValidCoordinate(lat, lng)) {
+              return { lat, lng }
+            }
+          }
+          
+          // Handle lat/lng format
+          if (incident.location.lat !== undefined && incident.location.lng !== undefined) {
+            const lat = parseFloat(incident.location.lat)
+            const lng = parseFloat(incident.location.lng)
+            if (!isNaN(lat) && !isNaN(lng) && isValidCoordinate(lat, lng)) {
+              return { lat, lng }
+            }
+          }
+          
+          // Handle Firestore GeoPoint internal format
+          if (incident.location._lat !== undefined && incident.location._long !== undefined) {
+            const lat = parseFloat(incident.location._lat)
+            const lng = parseFloat(incident.location._long)
+            if (!isNaN(lat) && !isNaN(lng) && isValidCoordinate(lat, lng)) {
+              return { lat, lng }
+            }
           }
         }
         
-        // Format 2: { location: { lat: x, lng: y } }
-        if (incident.location.lat && incident.location.lng) {
-          return {
-            lat: incident.location.lat,
-            lng: incident.location.lng
+        // Format 2: Direct properties on incident
+        if (incident.latitude !== undefined && incident.longitude !== undefined) {
+          const lat = parseFloat(incident.latitude)
+          const lng = parseFloat(incident.longitude)
+          if (!isNaN(lat) && !isNaN(lng) && isValidCoordinate(lat, lng)) {
+            return { lat, lng }
           }
         }
         
-        // Format 3: GeoPoint
-        if (incident.location._lat && incident.location._long) {
-          return {
-            lat: incident.location._lat,
-            lng: incident.location._long
+        if (incident.lat !== undefined && incident.lng !== undefined) {
+          const lat = parseFloat(incident.lat)
+          const lng = parseFloat(incident.lng)
+          if (!isNaN(lat) && !isNaN(lng) && isValidCoordinate(lat, lng)) {
+            return { lat, lng }
           }
         }
-      }
-      
-      // Format 4: Direct properties
-      if (incident.latitude && incident.longitude) {
-        return {
-          lat: incident.latitude,
-          lng: incident.longitude
+
+        // Format 3: coordinates array [lng, lat] (GeoJSON format)
+        if (Array.isArray(incident.coordinates) && incident.coordinates.length >= 2) {
+          const lng = parseFloat(incident.coordinates[0])
+          const lat = parseFloat(incident.coordinates[1])
+          if (!isNaN(lat) && !isNaN(lng) && isValidCoordinate(lat, lng)) {
+            return { lat, lng }
+          }
         }
-      }
-      
-      if (incident.lat && incident.lng) {
-        return {
+
+        // Format 4: position object
+        if (incident.position) {
+          if (incident.position.lat !== undefined && incident.position.lng !== undefined) {
+            const lat = parseFloat(incident.position.lat)
+            const lng = parseFloat(incident.position.lng)
+            if (!isNaN(lat) && !isNaN(lng) && isValidCoordinate(lat, lng)) {
+              return { lat, lng }
+            }
+          }
+        }
+
+        console.log(`No valid coordinates found for incident ${incident.id}:`, {
+          location: incident.location,
+          latitude: incident.latitude,
+          longitude: incident.longitude,
           lat: incident.lat,
-          lng: incident.lng
-        }
+          lng: incident.lng,
+          coordinates: incident.coordinates,
+          position: incident.position
+        })
+        
+      } catch (err) {
+        console.error(`Error extracting coordinates for incident ${incident.id}:`, err)
       }
       
       return null
     }
 
+    // Validate coordinates are reasonable
+    const isValidCoordinate = (lat, lng) => {
+      return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180 && 
+             lat !== 0 && lng !== 0 // Exclude 0,0 as it's likely invalid
+    }
+
     // Update markers on map
     const updateMapMarkers = () => {
-      if (!map.value) {
-        console.log('Map not ready yet')
+      if (!map.value || !mapReady.value) {
+        console.log('Map not ready for marker updates')
         return
       }
 
+      console.log('Updating map markers...')
+
       // Clear existing markers
-      incidentMarkers.value.forEach(marker => marker.setMap(null))
+      incidentMarkers.value.forEach(marker => {
+        try {
+          marker.setMap(null)
+        } catch (err) {
+          console.error('Error removing marker:', err)
+        }
+      })
       incidentMarkers.value = []
 
       const filtered = filteredIncidents.value
-      console.log('Updating markers for', filtered.length, 'filtered incidents')
+      console.log(`Processing ${filtered.length} filtered incidents for markers`)
 
       let validIncidents = 0
+      const bounds = new google.maps.LatLngBounds()
       
       // Add new markers
       filtered.forEach((incident, index) => {
         const coords = getCoordinates(incident)
         
         if (!coords) {
-          console.log(`Incident ${incident.id} has no valid coordinates:`, incident)
+          console.log(`Skipping incident ${incident.id} - no valid coordinates`)
           return
         }
 
-        console.log(`Creating marker for incident ${incident.id} at:`, coords)
+        console.log(`Creating marker ${index + 1} for incident ${incident.id} at:`, coords)
         
         try {
           const marker = new google.maps.Marker({
             position: coords,
             map: map.value,
             title: incident.title || `Incident ${incident.id}`,
-            icon: getMarkerIcon(incident)
+            icon: getMarkerIcon(incident),
+            animation: google.maps.Animation.DROP
           })
 
+          // Add click listener
           marker.addListener('click', () => {
             console.log('Marker clicked for incident:', incident.id)
             selectedIncident.value = incident
           })
 
           incidentMarkers.value.push(marker)
+          bounds.extend(coords)
           validIncidents++
+          
         } catch (err) {
           console.error(`Error creating marker for incident ${incident.id}:`, err)
         }
@@ -316,26 +482,40 @@ export default {
 
       console.log(`Successfully created ${validIncidents} markers out of ${filtered.length} incidents`)
 
-      // Adjust map bounds if we have markers
-      if (incidentMarkers.value.length > 0) {
-        const bounds = new google.maps.LatLngBounds()
-        incidentMarkers.value.forEach(marker => {
-          bounds.extend(marker.getPosition())
-        })
-        map.value.fitBounds(bounds)
-        
-        // Don't zoom in too much if there's only one marker
-        if (incidentMarkers.value.length === 1) {
-          map.value.setZoom(15)
+      // Adjust map view if we have markers
+      if (validIncidents > 0) {
+        try {
+          if (validIncidents === 1) {
+            // Single marker - center on it with reasonable zoom
+            map.value.setCenter(incidentMarkers.value[0].getPosition())
+            map.value.setZoom(15)
+          } else {
+            // Multiple markers - fit bounds
+            map.value.fitBounds(bounds)
+            
+            // Ensure minimum zoom level
+            const listener = google.maps.event.addListener(map.value, 'bounds_changed', () => {
+              if (map.value.getZoom() > 18) {
+                map.value.setZoom(18)
+              }
+              google.maps.event.removeListener(listener)
+            })
+          }
+        } catch (err) {
+          console.error('Error adjusting map bounds:', err)
         }
+      } else {
+        console.log('No valid markers to display - keeping default view')
       }
     }
 
     // Get appropriate marker icon based on incident
     const getMarkerIcon = (incident) => {
+      const status = incident.status || 'open'
+      
       const color = 
-        incident.status === 'resolved' ? '#28a745' :   // Green
-        incident.status === 'pending' ? '#ffc107' :    // Orange/Yellow
+        status === 'resolved' ? '#28a745' :   // Green
+        status === 'pending' ? '#ffc107' :    // Orange/Yellow
         '#dc3545'  // Red for open or unknown status
       
       return {
@@ -344,14 +524,14 @@ export default {
         fillOpacity: 0.8,
         strokeColor: '#ffffff',
         strokeWeight: 2,
-        scale: 10
+        scale: 12
       }
     }
 
     // Apply filters
     const applyFilters = () => {
       console.log('Applying filters - Status:', statusFilter.value, 'Type:', typeFilter.value)
-      updateMapMarkers()
+      // Markers will be updated automatically via the watcher
     }
 
     // Get location string for display
@@ -360,7 +540,7 @@ export default {
       if (coords) {
         return `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`
       }
-      return incident.address || 'Location not specified'
+      return incident.address || incident.locationName || 'Location not specified'
     }
 
     // Format date for display
@@ -368,10 +548,11 @@ export default {
       if (!timestamp) return 'N/A'
       
       try {
+        // Handle Firestore timestamp
         const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
         return date.toLocaleString()
       } catch (err) {
-        console.error('Error formatting date:', err)
+        console.error('Error formatting date:', err, timestamp)
         return 'Invalid date'
       }
     }
@@ -387,16 +568,6 @@ export default {
           updatedAt: new Date()
         })
         
-        // Update local data
-        selectedIncident.value.status = newStatus
-        const index = incidents.value.findIndex(i => i.id === selectedIncident.value.id)
-        if (index !== -1) {
-          incidents.value[index].status = newStatus
-        }
-        
-        // Update markers to reflect new status
-        updateMapMarkers()
-        
         console.log(`Incident ${selectedIncident.value.id} status updated to ${newStatus}`)
       } catch (error) {
         console.error('Error updating incident:', error)
@@ -409,6 +580,11 @@ export default {
       selectedIncident.value = null
     }
 
+    // Toggle debug view
+    const toggleDebug = () => {
+      showDebug.value = !showDebug.value
+    }
+
     return {
       incidents,
       filteredIncidents,
@@ -417,11 +593,15 @@ export default {
       typeFilter,
       isLoading,
       error,
+      mapReady,
+      validCoordinateCount,
+      showDebug,
       applyFilters,
       formatDateTime,
       updateStatus,
       closeIncidentModal,
-      getLocationString
+      getLocationString,
+      toggleDebug
     }
   }
 }
@@ -486,12 +666,30 @@ select {
   margin-left: auto;
   font-size: 0.9rem;
   color: #6c757d;
+  flex-wrap: wrap;
 }
 
 .debug-info span {
   background: #e9ecef;
   padding: 0.25rem 0.5rem;
   border-radius: 3px;
+  white-space: nowrap;
+}
+
+.loading-indicator {
+  padding: 2rem;
+  text-align: center;
+  color: #6c757d;
+  background: #f8f9fa;
+}
+
+.error-message {
+  padding: 1rem;
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+  margin: 1rem;
+  border-radius: 4px;
 }
 
 .map-container {
@@ -522,7 +720,7 @@ select {
   background: #fff;
   border-radius: 8px;
   width: 90%;
-  max-width: 500px;
+  max-width: 600px;
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
@@ -623,6 +821,27 @@ select {
   line-height: 1.5;
 }
 
+.incident-debug {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #dee2e6;
+}
+
+.incident-debug h4 {
+  margin: 0 0 0.5rem;
+  color: #495057;
+}
+
+.incident-debug pre {
+  background: #f8f9fa;
+  padding: 1rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  overflow-x: auto;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
 .modal-actions {
   padding: 1rem;
   border-top: 1px solid #dee2e6;
@@ -630,6 +849,7 @@ select {
   gap: 0.5rem;
   justify-content: flex-end;
   background: #f8f9fa;
+  flex-wrap: wrap;
 }
 
 .action-button {
@@ -639,6 +859,16 @@ select {
   cursor: pointer;
   font-weight: 500;
   transition: background-color 0.2s;
+  font-size: 0.9rem;
+}
+
+.action-button.debug {
+  background: #6c757d;
+  color: white;
+}
+
+.action-button.debug:hover {
+  background: #5a6268;
 }
 
 .action-button.pending {
@@ -681,5 +911,9 @@ select {
   .debug-info {
     margin-left: 0;
     margin-top: 0.5rem;
+  }
+  
+  .modal-actions {
+    justify-content: center;
   }
 }</style>

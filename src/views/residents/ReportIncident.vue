@@ -141,16 +141,45 @@
         <button @click="closeEmergencyModal" class="action-button emergency-action">OK</button>
       </div>
     </div>
+
+    <!-- Push Notification Modal -->
+    <div v-if="showPushNotification" class="notification-overlay" @click="closePushNotification">
+      <div class="push-notification" :class="notificationClass">
+        <div class="notification-header">
+          <div class="notification-icon">{{ notificationIcon }}</div>
+          <div class="notification-title">{{ notificationTitle }}</div>
+          <button @click="closePushNotification" class="notification-close">×</button>
+        </div>
+        <div class="notification-body">
+          <p>{{ notificationMessage }}</p>
+          <div v-if="notificationData" class="notification-details">
+            <small><strong>Location:</strong> {{ notificationData.location }}</small>
+            <small><strong>Type:</strong> {{ notificationData.type }}</small>
+            <small><strong>Urgency:</strong> {{ notificationData.urgency }}</small>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audio elements for notification sounds -->
+    <audio ref="notificationSound" preload="auto">
+      <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjyV2u7JdCUELYPR8dCEMwcabbzs5qBOCg5Up+3xvWUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAkTYbPr5KFOCg5Up+zxvmUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAkTYbPr5KFOCg5Up+zxvmUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAkTYbPr5KFOCg5Up+zxvmUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAkTYbPr5KFOCg5Up+zxvmUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAkTYbPr5KFOCg5Up+zxvmUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAkTYbPr5KFOCg5Up+zxvmUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAkTYbPr5KFOCg5Up+zxvmUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAkTYbPr5KFOCg5Up+zxvmUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAkTYbPr5KFOCg5Up+zxvmUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAk=" type="audio/wav">
+      Your browser does not support the audio element.
+    </audio>
+    <audio ref="emergencySound" preload="auto">
+      <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjyV2u7JdCUELYPR8dCEMwcabbzs5qBOCg5Up+3xvWUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAkTYbPr5KFOCg5Up+zxvmUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAkTYbPr5KFOCg5Up+zxvmUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAkTYbPr5KFOCg5Up+zxvmUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAkTYbPr5KFOCg5Up+zxvmUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAkTYbPr5KFOCg5Up+zxvmUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAkTYbPr5KFOCg5Up+zxvmUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAkTYbPr5KFOCg5Up+zxvmUdBDOO1+3PeCwELYfU8NyFMgcbYbLr56lUEgxFnN/yvWYdBjyU2e7KdSUELILQ8tOHNAk=" type="audio/wav">
+      Your browser does not support the audio element.
+    </audio>
   </div>
 </template>
 
 <script>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { auth, db, storage } from '../../services/firebase'
-import { collection, doc, setDoc, serverTimestamp, getDocs, query, where, getDoc } from 'firebase/firestore'
+import { collection, doc, setDoc, serverTimestamp, getDocs, query, where, getDoc, onSnapshot } from 'firebase/firestore'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { useRouter } from 'vue-router'
-import { getFunctions, httpsCallable } from 'firebase/functions' // Add this import
+import { getFunctions, httpsCallable } from 'firebase/functions'
 
 export default {
   name: 'ReportIncident',
@@ -163,11 +192,25 @@ export default {
     const showLocationPicker = ref(false)
     const showSuccessModal = ref(false)
     const showEmergencyModal = ref(false)
+    const showPushNotification = ref(false)
     const reportId = ref('')
     const emergencyId = ref('')
+    const notificationSound = ref(null)
+    const emergencySound = ref(null)
+    
+    // Push notification data
+    const notificationTitle = ref('')
+    const notificationMessage = ref('')
+    const notificationIcon = ref('')
+    const notificationClass = ref('')
+    const notificationData = ref(null)
+    
+    // Firestore listeners
+    let incidentsListener = null
+    let emergenciesListener = null
     
     // Initialize Firebase Functions
-    const functions = getFunctions() // Add this line
+    const functions = getFunctions()
     
     const urgencyLevels = [
       { value: 'low', label: 'Low' },
@@ -205,8 +248,309 @@ export default {
       });
     };
 
+    // Request notification permission
+    const requestNotificationPermission = async () => {
+      if ('Notification' in window) {
+        const permission = await Notification.requestPermission()
+        return permission === 'granted'
+      }
+      return false
+    }
+
+    // Show browser notification
+    const showBrowserNotification = (title, message, data = null) => {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const notification = new Notification(title, {
+          body: message,
+          icon: '/favicon.ico',
+          badge: '/favicon.ico',
+          tag: 'incident-notification',
+          requireInteraction: true,
+          data: data
+        })
+
+        notification.onclick = () => {
+          window.focus()
+          notification.close()
+          if (data && data.incidentId) {
+            router.push(`/incident/${data.incidentId}`)
+          }
+        }
+
+        // Auto close after 10 seconds
+        setTimeout(() => {
+          notification.close()
+        }, 10000)
+      }
+    }
+
+    // Show push notification popup
+    const showPushNotificationPopup = (title, message, icon, urgency, data = null) => {
+      notificationTitle.value = title
+      notificationMessage.value = message
+      notificationIcon.value = icon
+      notificationData.value = data
+      
+      // Set notification class based on urgency
+      switch (urgency) {
+        case 'critical':
+          notificationClass.value = 'notification-critical'
+          break
+        case 'high':
+          notificationClass.value = 'notification-high'
+          break
+        case 'medium':
+          notificationClass.value = 'notification-medium'
+          break
+        default:
+          notificationClass.value = 'notification-low'
+      }
+      
+      showPushNotification.value = true
+      
+      // Auto close after 15 seconds
+      setTimeout(() => {
+        if (showPushNotification.value) {
+          closePushNotification()
+        }
+      }, 15000)
+    }
+
+    // Close push notification
+    const closePushNotification = () => {
+      showPushNotification.value = false
+      notificationTitle.value = ''
+      notificationMessage.value = ''
+      notificationIcon.value = ''
+      notificationData.value = null
+      notificationClass.value = ''
+    }
+
+    // Function to play notification sound based on urgency
+    const playNotificationSound = (urgency = 'medium') => {
+      try {
+        let soundElement = notificationSound.value
+        
+        // Use emergency sound for critical/high urgency
+        if (urgency === 'critical' || urgency === 'high') {
+          soundElement = emergencySound.value
+        }
+        
+        if (soundElement) {
+          soundElement.currentTime = 0;
+          soundElement.play().catch(error => {
+            console.warn('Could not play notification sound:', error);
+            createBeepSound(urgency);
+          });
+        } else {
+          createBeepSound(urgency);
+        }
+      } catch (error) {
+        console.warn('Notification sound failed:', error);
+        createBeepSound(urgency);
+      }
+    };
+
+    // Enhanced fallback function to create different beep sounds based on urgency
+    const createBeepSound = (urgency = 'medium') => {
+      try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        // Different frequencies and patterns based on urgency
+        let frequency, duration, repetitions;
+        switch (urgency) {
+          case 'critical':
+            frequency = 1200;
+            duration = 0.3;
+            repetitions = 3;
+            break;
+          case 'high':
+            frequency = 1000;
+            duration = 0.4;
+            repetitions = 2;
+            break;
+          case 'medium':
+            frequency = 800;
+            duration = 0.5;
+            repetitions = 1;
+            break;
+          default:
+            frequency = 600;
+            duration = 0.3;
+            repetitions = 1;
+        }
+        
+        oscillator.frequency.value = frequency;
+        oscillator.type = 'sine';
+        
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+        
+        // Play multiple beeps for higher urgency
+        for (let i = 0; i < repetitions; i++) {
+          const startTime = audioContext.currentTime + (i * (duration + 0.2));
+          const endTime = startTime + duration;
+          
+          if (i > 0) {
+            const newOscillator = audioContext.createOscillator();
+            const newGainNode = audioContext.createGain();
+            
+            newOscillator.connect(newGainNode);
+            newGainNode.connect(audioContext.destination);
+            
+            newOscillator.frequency.value = frequency;
+            newOscillator.type = 'sine';
+            
+            newGainNode.gain.setValueAtTime(0.3, startTime);
+            newGainNode.gain.exponentialRampToValueAtTime(0.01, endTime);
+            
+            newOscillator.start(startTime);
+            newOscillator.stop(endTime);
+          }
+        }
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + duration);
+      } catch (error) {
+        console.warn('Web Audio API not supported:', error);
+      }
+    };
+
+    // Set up real-time listeners for new incidents and emergencies
+    const setupRealtimeListeners = () => {
+      if (!auth.currentUser) return
+
+      // Listen for new incidents
+      const incidentsRef = collection(db, 'incidents')
+      incidentsListener = onSnapshot(incidentsRef, (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const incidentData = change.doc.data()
+            const incidentId = change.doc.id
+            
+            // Don't show notification for incidents reported by current user
+            if (incidentData.reportedBy !== auth.currentUser.uid) {
+              const urgency = incidentData.urgency || 'medium'
+              const title = `New ${urgency.toUpperCase()} Priority Incident`
+              const message = `${incidentData.title} reported at ${incidentData.location}`
+              const icon = getIncidentIcon(incidentData.type, urgency)
+              
+              // Show both browser notification and popup
+              showBrowserNotification(title, message, {
+                incidentId,
+                type: incidentData.type,
+                urgency,
+                location: incidentData.location
+              })
+              
+              showPushNotificationPopup(title, message, icon, urgency, {
+                incidentId,
+                type: incidentData.type,
+                urgency,
+                location: incidentData.location
+              })
+              
+              // Play sound based on urgency
+              playNotificationSound(urgency)
+            }
+          }
+        })
+      })
+
+      // Listen for new emergencies
+      const emergenciesRef = collection(db, 'emergencies')
+      emergenciesListener = onSnapshot(emergenciesRef, (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const emergencyData = change.doc.data()
+            const emergencyId = change.doc.id
+            
+            // Don't show notification for emergencies reported by current user
+            if (emergencyData.reportedBy !== auth.currentUser.uid) {
+              const title = '🚨 EMERGENCY ALERT'
+              const message = `Emergency reported by ${emergencyData.reporterName} at ${emergencyData.reporterLocation}`
+              const icon = '🚨'
+              
+              // Show both browser notification and popup
+              showBrowserNotification(title, message, {
+                emergencyId,
+                type: 'emergency',
+                urgency: 'critical',
+                location: emergencyData.reporterLocation
+              })
+              
+              showPushNotificationPopup(title, message, icon, 'critical', {
+                emergencyId,
+                type: 'emergency',
+                urgency: 'critical',
+                location: emergencyData.reporterLocation
+              })
+              
+              // Play emergency sound
+              playNotificationSound('critical')
+            }
+          }
+        })
+      })
+    }
+
+    // Get incident icon based on type and urgency
+    const getIncidentIcon = (type, urgency) => {
+      const icons = {
+        theft: '🔓',
+        vandalism: '🔨',
+        suspicious_activity: '👁️',
+        noise_complaint: '🔊',
+        parking_violation: '🚗',
+        emergency: '🚨',
+        other: '⚠️'
+      }
+      
+      let baseIcon = icons[type] || '⚠️'
+      
+      // Add urgency indicator
+      if (urgency === 'critical') {
+        baseIcon = '🚨' + baseIcon
+      } else if (urgency === 'high') {
+        baseIcon = '⚠️' + baseIcon
+      }
+      
+      return baseIcon
+    }
+
     onMounted(async () => {
       await loadGoogleMaps()
+      
+      // Request notification permission
+      await requestNotificationPermission()
+      
+      // Set up real-time listeners when user is authenticated
+      if (auth.currentUser) {
+        setupRealtimeListeners()
+      } else {
+        // Wait for auth state to change
+        const unsubscribe = auth.onAuthStateChanged((user) => {
+          if (user) {
+            setupRealtimeListeners()
+            unsubscribe()
+          }
+        })
+      }
+    })
+
+    onUnmounted(() => {
+      // Clean up listeners
+      if (incidentsListener) {
+        incidentsListener()
+      }
+      if (emergenciesListener) {
+        emergenciesListener()
+      }
     })
 
     const handleFileUpload = (event) => {
@@ -321,7 +665,6 @@ export default {
 
         // Try to call Firebase Cloud Function for SMS
         try {
-          // You'll need to create this Firebase Cloud Function
           const sendEmergencySMS = httpsCallable(functions, 'sendEmergencySMS')
           
           const smsData = {
@@ -529,6 +872,9 @@ export default {
           }
         }
 
+        // Play notification sound when incident is successfully submitted
+        playNotificationSound(incident.value.urgency)
+        
         showSuccessModal.value = true
       } catch (error) {
         console.error('Error submitting incident:', error)
@@ -560,8 +906,16 @@ export default {
       showLocationPicker,
       showSuccessModal,
       showEmergencyModal,
+      showPushNotification,
       reportId,
       emergencyId,
+      notificationSound,
+      emergencySound,
+      notificationTitle,
+      notificationMessage,
+      notificationIcon,
+      notificationClass,
+      notificationData,
       handleFileUpload,
       removeFile,
       openLocationPicker,
@@ -569,7 +923,9 @@ export default {
       submitIncident,
       contactPolice,
       closeSuccessModal,
-      closeEmergencyModal
+      closeEmergencyModal,
+      closePushNotification,
+      playNotificationSound
     }
   }
 }
@@ -986,6 +1342,123 @@ input[type="file"] {
   background-color: #ee5a52;
 }
 
+/* Push Notification Styles */
+.notification-overlay {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10000;
+  pointer-events: none;
+}
+
+.push-notification {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  min-width: 350px;
+  max-width: 450px;
+  pointer-events: all;
+  animation: slideInRight 0.3s ease-out;
+  border-left: 5px solid #42b983;
+}
+
+.push-notification.notification-critical {
+  border-left-color: #ff6b6b;
+  animation: shake 0.5s ease-in-out, slideInRight 0.3s ease-out;
+}
+
+.push-notification.notification-high {
+  border-left-color: #ff9800;
+}
+
+.push-notification.notification-medium {
+  border-left-color: #ffc107;
+}
+
+.push-notification.notification-low {
+  border-left-color: #4caf50;
+}
+
+.notification-header {
+  display: flex;
+  align-items: center;
+  padding: 15px 20px 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.notification-icon {
+  font-size: 1.5rem;
+  margin-right: 12px;
+}
+
+.notification-title {
+  flex: 1;
+  font-weight: 600;
+  color: #2c3e50;
+  font-size: 16px;
+}
+
+.notification-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: #999;
+  padding: 5px;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notification-close:hover {
+  background: #f5f5f5;
+  color: #333;
+}
+
+.notification-body {
+  padding: 15px 20px 20px;
+}
+
+.notification-body p {
+  margin: 0 0 10px 0;
+  color: #555;
+  line-height: 1.4;
+}
+
+.notification-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.notification-details small {
+  color: #777;
+  font-size: 12px;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
 @media (max-width: 768px) {
   .form-row {
     flex-direction: column;
@@ -1013,6 +1486,17 @@ input[type="file"] {
   .emergency-icon {
     margin-right: 0;
     margin-bottom: 15px;
+  }
+
+  .notification-overlay {
+    top: 10px;
+    right: 10px;
+    left: 10px;
+  }
+
+  .push-notification {
+    min-width: auto;
+    max-width: none;
   }
 }
 </style>
